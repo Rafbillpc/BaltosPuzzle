@@ -139,14 +139,14 @@ map<i32, puzzle_state> load_configurations() {
   return C;
 }
 
-u64 hash_hole_src[MAX_SIZE];
-u64 hash_hole_tgt[MAX_SIZE];
-u64 hash_perm[MAX_SIZE][MAX_SIZE];
+u64 hash_direction[2];
+u64 hash_src[MAX_SIZE][MAX_SIZE];
+u64 hash_tgt[MAX_SIZE][MAX_SIZE];
 
 void init_hash() {
-  FOR(i, MAX_SIZE) hash_hole_src[i] = rng.randomInt64();
-  FOR(i, MAX_SIZE) hash_hole_tgt[i] = rng.randomInt64();
-  FOR(i, MAX_SIZE) FOR(j, MAX_SIZE) hash_perm[i][j] = rng.randomInt64();
+  FOR(i, 2) hash_direction[i] = rng.randomInt64();
+  FOR(i, MAX_SIZE) FOR(j, MAX_SIZE) hash_src[i][j] = rng.randomInt64();
+  FOR(i, MAX_SIZE) FOR(j, MAX_SIZE) hash_tgt[i][j] = rng.randomInt64();
 }
 
 void init_rng() {
@@ -162,7 +162,8 @@ void init_rng() {
 struct beam_state {
   puzzle_state src_state;
   puzzle_state tgt_state;
-  u8 last_direction;
+  u8 last_direction_src;
+  u8 last_direction_tgt;
 
   i64 total_distance;
   u64 hash;
@@ -172,7 +173,8 @@ struct beam_state {
              u8 initial_direction) {
     src_state = initial_state;
     tgt_state.reset(P);
-    last_direction = initial_direction;
+    last_direction_src = (initial_direction >> 0) & 1;
+    last_direction_tgt = (initial_direction >> 1) & 1;
 
     total_distance = 0;
     FORU(u, 1, P.size-1) {
@@ -183,7 +185,7 @@ struct beam_state {
   }
 
   i64 value(puzzle_data const& P) const {
-    return total_distance;
+    return total_distance + (last_direction_src != last_direction_tgt);
     
     // i64 v = 0;
     // FORU(u, 1, P.size-1) {
@@ -195,9 +197,8 @@ struct beam_state {
   
   u64 get_hash0(puzzle_data const& P) const {
     u64 h = 0;
-    h ^= hash_hole_src[src_state.tok_to_pos[0]];
-    h ^= hash_hole_tgt[tgt_state.tok_to_pos[0]];
-    FORU(i, 1, P.size-1) h ^= hash_perm[i][src_state.tok_to_pos[i]];
+    FOR(i, P.size) h ^= hash_src[i][src_state.tok_to_pos[i]];
+    FOR(i, P.size) h ^= hash_tgt[i][tgt_state.tok_to_pos[i]];
     return h;
   }
 
@@ -207,50 +208,148 @@ struct beam_state {
     // return get_hash0(P);
   }
   
-  void do_move(puzzle_data const& P, u8 move) {
-    i32 a = src_state.tok_to_pos[0], b, c;
+  tuple<i64, u64> plan_move(puzzle_data const& P, u8 move) const {
+    i64 v = total_distance; u64 h = hash;
     
-    if(last_direction == 0) {
-      b = P.data[a].data[move];
-      c = P.data[a].data[(move+1)%6];
+    if(move < 6) {
+      i32 a = src_state.tok_to_pos[0], b, c;
+    
+      if(last_direction_src == 0) {
+        b = P.data[a].data[move];
+        c = P.data[a].data[(move+1)%6];
+      }else{
+        b = P.data[a].data[move];
+        c = P.data[a].data[(move+5)%6];
+      }
+
+      auto xb = src_state.pos_to_tok[b];
+      auto xc = src_state.pos_to_tok[c];
+
+      v -= P.dist[b][tgt_state.tok_to_pos[xb]];
+      v -= P.dist[c][tgt_state.tok_to_pos[xc]];
+      h ^= hash_src[0][a];
+      h ^= hash_src[xb][b];
+      h ^= hash_src[xc][c];
+
+      v += P.dist[c][tgt_state.tok_to_pos[xb]];
+      v += P.dist[a][tgt_state.tok_to_pos[xc]];
+      h ^= hash_src[0][b];
+      h ^= hash_src[xb][c];
+      h ^= hash_src[xc][a];
     }else{
-      b = P.data[a].data[move];
-      c = P.data[a].data[(move+5)%6];
+      i32 a = tgt_state.tok_to_pos[0], b, c;
+      move -= 6;
+      
+      if(last_direction_tgt == 0) {
+        b = P.data[a].data[move];
+        c = P.data[a].data[(move+1)%6];
+      }else{
+        b = P.data[a].data[move];
+        c = P.data[a].data[(move+5)%6];
+      }
+
+      auto xb = tgt_state.pos_to_tok[b];
+      auto xc = tgt_state.pos_to_tok[c];
+
+      v -= P.dist[src_state.tok_to_pos[xb]][b];
+      v -= P.dist[src_state.tok_to_pos[xc]][c];
+      h ^= hash_tgt[0][a];
+      h ^= hash_tgt[xb][b];
+      h ^= hash_tgt[xc][c];
+
+      v += P.dist[src_state.tok_to_pos[xb]][c];
+      v += P.dist[src_state.tok_to_pos[xc]][a];
+      h ^= hash_tgt[0][b];
+      h ^= hash_tgt[xb][c];
+      h ^= hash_tgt[xc][a];
     }
 
-    auto xb = src_state.pos_to_tok[b];
-    auto xc = src_state.pos_to_tok[c];
-
-    total_distance -= P.dist[src_state.tok_to_pos[xb]][tgt_state.tok_to_pos[xb]];
-    total_distance -= P.dist[src_state.tok_to_pos[xc]][tgt_state.tok_to_pos[xc]];
-    hash ^= hash_hole_src[src_state.tok_to_pos[0]];
-    hash ^= hash_perm[xb][src_state.tok_to_pos[xb]];
-    hash ^= hash_perm[xc][src_state.tok_to_pos[xc]];
+    return mt(v + (last_direction_src == last_direction_tgt), h);
+  }
     
-    src_state.pos_to_tok[a]  = xc;
-    src_state.pos_to_tok[b]  = 0;
-    src_state.pos_to_tok[c]  = xb;
-    src_state.tok_to_pos[0]  = b;
-    src_state.tok_to_pos[xb] = c;
-    src_state.tok_to_pos[xc] = a;
-
-    total_distance += P.dist[src_state.tok_to_pos[xb]][tgt_state.tok_to_pos[xb]];
-    total_distance += P.dist[src_state.tok_to_pos[xc]][tgt_state.tok_to_pos[xc]];
-    hash ^= hash_hole_src[src_state.tok_to_pos[0]];
-    hash ^= hash_perm[xb][src_state.tok_to_pos[xb]];
-    hash ^= hash_perm[xc][src_state.tok_to_pos[xc]];
+  void do_move(puzzle_data const& P, u8 move) {
+    if(move < 6) {
+      i32 a = src_state.tok_to_pos[0], b, c;
     
-    last_direction ^= 1;
+      if(last_direction_src == 0) {
+        b = P.data[a].data[move];
+        c = P.data[a].data[(move+1)%6];
+      }else{
+        b = P.data[a].data[move];
+        c = P.data[a].data[(move+5)%6];
+      }
+
+      auto xb = src_state.pos_to_tok[b];
+      auto xc = src_state.pos_to_tok[c];
+
+      total_distance -= P.dist[b][tgt_state.tok_to_pos[xb]];
+      total_distance -= P.dist[c][tgt_state.tok_to_pos[xc]];
+      hash ^= hash_src[0][a];
+      hash ^= hash_src[xb][b];
+      hash ^= hash_src[xc][c];
+
+      src_state.pos_to_tok[a]  = xc;
+      src_state.pos_to_tok[b]  = 0;
+      src_state.pos_to_tok[c]  = xb;
+      src_state.tok_to_pos[0]  = b;
+      src_state.tok_to_pos[xb] = c;
+      src_state.tok_to_pos[xc] = a;
+
+      total_distance += P.dist[c][tgt_state.tok_to_pos[xb]];
+      total_distance += P.dist[a][tgt_state.tok_to_pos[xc]];
+      hash ^= hash_src[0][b];
+      hash ^= hash_src[xb][c];
+      hash ^= hash_src[xc][a];
+
+      last_direction_src ^= 1;
+
+    }else{
+      i32 a = tgt_state.tok_to_pos[0], b, c;
+      move -= 6;
+      
+      if(last_direction_tgt == 0) {
+        b = P.data[a].data[move];
+        c = P.data[a].data[(move+1)%6];
+      }else{
+        b = P.data[a].data[move];
+        c = P.data[a].data[(move+5)%6];
+      }
+
+      auto xb = tgt_state.pos_to_tok[b];
+      auto xc = tgt_state.pos_to_tok[c];
+
+      total_distance -= P.dist[src_state.tok_to_pos[xb]][b];
+      total_distance -= P.dist[src_state.tok_to_pos[xc]][c];
+      hash ^= hash_tgt[0][a];
+      hash ^= hash_tgt[xb][b];
+      hash ^= hash_tgt[xc][c];
+    
+      tgt_state.pos_to_tok[a]  = xc;
+      tgt_state.pos_to_tok[b]  = 0;
+      tgt_state.pos_to_tok[c]  = xb;
+      tgt_state.tok_to_pos[0]  = b;
+      tgt_state.tok_to_pos[xb] = c;
+      tgt_state.tok_to_pos[xc] = a;
+
+      total_distance += P.dist[src_state.tok_to_pos[xb]][c];
+      total_distance += P.dist[src_state.tok_to_pos[xc]][a];
+      hash ^= hash_tgt[0][b];
+      hash ^= hash_tgt[xb][c];
+      hash ^= hash_tgt[xc][a];
+
+      last_direction_tgt ^= 1;
+
+    }
   }
   
   void undo_move(puzzle_data const& P, u8 move) {
-    do_move(P, (move+3)%6);
+    do_move(P, 6*(move/6) + (move+3)%6);
   }
 };
 
 
-const i32 TREE_SIZE  = 1'000'000;
-const i32 LIMIT_SIZE = TREE_SIZE - 10'000;
+const i32 TREE_SIZE  = 1<<18;
+const i32 LIMIT_SIZE = TREE_SIZE - 50'000;
 
 using euler_tour_edge = u8;
 struct euler_tour {
@@ -285,6 +384,44 @@ const u64 HASH_SIZE = 1ull<<28;
 const u64 HASH_MASK = HASH_SIZE-1;
 atomic<uint64_t> *HS = nullptr;
 
+
+vector<u8> find_solution
+(puzzle_data const& P,
+ puzzle_state const& initial_state, u8 initial_direction,
+ i32 istep,
+ euler_tour tour_current)
+{
+  beam_state S; S.reset(P, initial_state, initial_direction);
+
+  vector<u8> stack_moves(istep+1, 255);
+  i32 nstack_moves = 0;
+
+  FOR(iedge, tour_current.size) {
+    auto const& edge = tour_current[iedge];
+    if(edge > 0) {
+      stack_moves[nstack_moves] = edge - 1;
+      S.do_move(P, stack_moves[nstack_moves]);
+      nstack_moves += 1;
+    }else{
+      if(nstack_moves == istep+1) {
+        auto v = S.value(P);
+        if(v == 0) {
+          return stack_moves;
+        }
+      }
+
+      if(nstack_moves == 0) {
+        return {};
+      }
+				
+      nstack_moves -= 1;
+      S.undo_move(P, stack_moves[nstack_moves]);
+    }
+  }
+
+  runtime_assert(false);
+}
+
 void traverse_euler_tour
 (puzzle_data const& P,
  puzzle_state const& initial_state, u8 initial_direction,
@@ -296,7 +433,7 @@ void traverse_euler_tour
 {
   beam_state S; S.reset(P, initial_state, initial_direction);
 
-  vector<i32> stack_moves(istep+1);
+  vector<u8> stack_moves(istep+1);
   i32 nstack_moves = 0;
 
   i32 ncommit = 0;
@@ -318,31 +455,14 @@ void traverse_euler_tour
             ncommit += 1;
           }
 
-          // if(S.nvisited > best) {
-          // #pragma omp critical
-          //   {
-          //     if(S.nvisited > best) {
-          //       best = S.nvisited;
-          //       sol.clear();
-          //       FOR(i, nstack_moves) {
-          //         i32 m = stack_moves[i];
-          //         i32 dx = m/3, dy = m%3;
-          //         sol += dc[dy][dx];
-          //       }
-          //     }
-          //   }
-          // }
-
-          FOR(m, 6) {
-            S.do_move(P, m);
-            auto h = S.get_hash(P);
+          FOR(m, 12) {
+            auto [v,h] = S.plan_move(P, m);
             auto prev = HS[h&HASH_MASK].exchange(h, std::memory_order_relaxed);
             if(prev != h) {
-              histogram[S.value(P)] += 1;
+              histogram[v] += 1;
               tour_next->push(1+m);
               tour_next->push(0);
             }
-            S.undo_move(P, m);
           }
         }
       }
@@ -372,7 +492,7 @@ void traverse_euler_tour
   runtime_assert(false);
 }
 
-void beam_search
+vector<u8> beam_search
 (puzzle_data const& P,
  puzzle_state const& initial_state,
  u8 initial_direction,
@@ -383,7 +503,8 @@ void beam_search
     HS = ptr;
   }
 
-  i32 max_score = 1000; // TODO
+  beam_state S; S.reset(P, initial_state, initial_direction);
+  i32 max_score = S.total_distance + 16; // TODO
   vector<i64> histogram(max_score+1, 0);
   
   vector<euler_tour> tours_current;
@@ -471,35 +592,111 @@ void beam_search
       ", elapsed = " << setw(10) << timer_s.elapsed() << "s" <<
       endl;
 
-    if(low == 0) exit(0);
-    
     tours_current = tours_next;
+    
+    if(low == 0) {
+      vector<u8> solution;
+      
+#pragma omp parallel
+      {
+        while(1) {
+          euler_tour tour_current;
+#pragma omp critical
+          { if(!tours_current.empty()) {
+              tour_current = tours_current.back();
+              tours_current.pop_back();
+            }else{
+              tour_current.size = 0;
+            }
+          }
+          if(tour_current.size == 0) break;
+          
+          auto lsolution = find_solution
+            (P, initial_state, initial_direction,
+             istep,
+             tour_current);
+          if(!lsolution.empty()) {
+            #pragma omp critical
+            {
+              solution = lsolution;
+            }
+          }
+        }
+      }
+      
+      return solution;
+    }
+
   }
+
+  return {};
 }
 
-void solve(puzzle_data const& P, puzzle_state initial_state) {
-  const i64 WIDTH = 5'000'000;
+void solve(puzzle_data const& P, puzzle_state initial_state, i64 width) {
+  auto solution = beam_search
+    (P, initial_state, 0, width);
+
+
+  // if(last_direction_src == 0) {
+  //   b = P.data[a].data[move];
+  //   c = P.data[a].data[(move+1)%6];
+  // }else{
+  //   b = P.data[a].data[move];
+  //   c = P.data[a].data[(move+5)%6];
+  // }
+
+
   
-  FOR(dir, 2) {
-    debug(dir);
-    beam_search
-      (P, initial_state, dir, WIDTH);
+  vector<char> L, R;
+  u8 last_direction_src = 0;
+  u8 last_direction_tgt = 0; 
+  for(auto m : solution) {
+    if(m < 6) {
+      if(last_direction_src == 0) {
+        L.pb('1'+m);
+      }else{
+        L.pb('A'+(m+5)%6);
+      }
+      
+      last_direction_src ^= 1;
+    }else{
+      m -= 6;
+
+      if(last_direction_tgt == 0) {
+        R.pb('A'+(m+2)%6);
+      }else{
+        R.pb('1'+(m+3)%6);
+      }
+      
+      last_direction_tgt ^= 1;
+    }
   }
+
+  reverse(all(R));
+  L.insert(end(L),all(R));
+  cout << P.n << ":";
+  for(auto c : L) {
+    cout << c;
+  }
+  cout << endl;
 }
 
-int main() {
+int main(int argc, char** argv) {
+  runtime_assert(argc == 3);
+
+  i64 sz = atoi(argv[1]);
+  i64 width = atoll(argv[2]);
+  debug(sz, width);
+  
   init_hash();
   init_rng();
   
   auto C = load_configurations();
 
-  FORU(sz, 4, 4) {
-    debug(sz);
-    runtime_assert(C.count(sz));
-    puzzle_data P;
-    P.make(sz);
-    solve(P, C[sz]);
-  }
+  runtime_assert(C.count(sz));
+  puzzle_data P;
+  P.make(sz);
+  solve(P, C[sz], width);
 
   return 0;
 }

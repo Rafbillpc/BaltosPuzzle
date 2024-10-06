@@ -1,3 +1,6 @@
 [submodule "external/indicators"]
 	path = external/indicators
 	url = https://github.com/p-ranav/indicators
+[submodule "external/argparse"]
+	path = external/argparse
+	url = https://github.com/p-ranav/argparse
