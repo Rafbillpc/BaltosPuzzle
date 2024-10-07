@@ -113,11 +113,11 @@ struct puzzle_state {
       pos_to_tok[i] = (i == (i32)P.center ? 0 : (i < (i32)P.center ? 1+i : i));
     }
 
-    update_tok_to_pos(P);
+    update_tok_to_pos(P.size);
   }
 
-  void update_tok_to_pos(puzzle_data const& P) {
-    FOR(i, P.size) tok_to_pos[pos_to_tok[i]] = i;
+  void update_tok_to_pos(i32 size) {
+    FOR(i, size) tok_to_pos[pos_to_tok[i]] = i;
   }
 
   void print(puzzle_data const& P) const {
@@ -140,31 +140,31 @@ map<i32, puzzle_state> load_configurations() {
   
   ifstream is("StartingConfigurations.txt");
   runtime_assert(is.good());
-  FORU(sz, 3, 27) {
-    puzzle_data P;
-    P.make(sz);
-    { i32 sz_; is >> sz_; runtime_assert(sz == sz_); }
+  FORU(n, 3, 27) {
+    { i32 n_; is >> n_; runtime_assert(n == n_); }
+
+    i32 size = 0;
+    FOR(u, 2*n-1) {
+      u32 ncol = 2*n-1 - abs(u-(n-1));
+      size += ncol;
+    }
+
     puzzle_state S0;
-    runtime_assert(P.size <= MAX_SIZE);
-    FOR(i, P.size) {
+    FOR(i, size) {
       is >> S0.pos_to_tok[i];
     }
-    S0.update_tok_to_pos(P);
+    S0.update_tok_to_pos(size);
 
-    C[sz] = S0;
+    C[n] = S0;
   }
 
   return C;
 }
 
-u64 hash_direction[2];
-u64 hash_src[MAX_SIZE][MAX_SIZE];
-u64 hash_tgt[MAX_SIZE][MAX_SIZE];
+u64 hash_pos[MAX_SIZE][MAX_SIZE];
 
 void init_hash() {
-  FOR(i, 2) hash_direction[i] = rng.randomInt64();
-  FOR(i, MAX_SIZE) FOR(j, MAX_SIZE) hash_src[i][j] = rng.randomInt64();
-  FOR(i, MAX_SIZE) FOR(j, MAX_SIZE) hash_tgt[i][j] = rng.randomInt64();
+  FOR(i, MAX_SIZE) FOR(j, MAX_SIZE) hash_pos[i][j] = rng.randomInt64();
 }
 
 void init_rng() {
@@ -215,15 +215,12 @@ struct beam_state {
   
   u64 get_hash0(puzzle_data const& P) const {
     u64 h = 0;
-    FOR(i, P.size) h ^= hash_src[i][src_state.tok_to_pos[i]];
-    FOR(i, P.size) h ^= hash_tgt[i][tgt_state.tok_to_pos[i]];
+    FORU(u, 1, P.size-1) h ^= hash_pos[src_state.tok_to_pos[u]][tgt_state.tok_to_pos[u]];
     return h;
   }
 
   u64 get_hash(puzzle_data const& P) const {
     return hash;
-    // runtime_assert(get_hash0(P) == hash);
-    // return get_hash0(P);
   }
   
   tuple<i64, u64> plan_move(puzzle_data const& P, u8 move) const {
@@ -245,15 +242,13 @@ struct beam_state {
 
       v -= P.dist[b][tgt_state.tok_to_pos[xb]];
       v -= P.dist[c][tgt_state.tok_to_pos[xc]];
-      h ^= hash_src[0][a];
-      h ^= hash_src[xb][b];
-      h ^= hash_src[xc][c];
+      h ^= hash_pos[b][tgt_state.tok_to_pos[xb]];
+      h ^= hash_pos[c][tgt_state.tok_to_pos[xc]];
 
       v += P.dist[c][tgt_state.tok_to_pos[xb]];
       v += P.dist[a][tgt_state.tok_to_pos[xc]];
-      h ^= hash_src[0][b];
-      h ^= hash_src[xb][c];
-      h ^= hash_src[xc][a];
+      h ^= hash_pos[c][tgt_state.tok_to_pos[xb]];
+      h ^= hash_pos[a][tgt_state.tok_to_pos[xc]];
     }else{
       i32 a = tgt_state.tok_to_pos[0], b, c;
       move -= 6;
@@ -271,15 +266,13 @@ struct beam_state {
 
       v -= P.dist[src_state.tok_to_pos[xb]][b];
       v -= P.dist[src_state.tok_to_pos[xc]][c];
-      h ^= hash_tgt[0][a];
-      h ^= hash_tgt[xb][b];
-      h ^= hash_tgt[xc][c];
+      h ^= hash_pos[src_state.tok_to_pos[xb]][b];
+      h ^= hash_pos[src_state.tok_to_pos[xc]][c];
 
       v += P.dist[src_state.tok_to_pos[xb]][c];
       v += P.dist[src_state.tok_to_pos[xc]][a];
-      h ^= hash_tgt[0][b];
-      h ^= hash_tgt[xb][c];
-      h ^= hash_tgt[xc][a];
+      h ^= hash_pos[src_state.tok_to_pos[xb]][c];
+      h ^= hash_pos[src_state.tok_to_pos[xc]][a];
     }
 
     return mt(v + (last_direction_src == last_direction_tgt), h);
@@ -302,9 +295,8 @@ struct beam_state {
 
       total_distance -= P.dist[b][tgt_state.tok_to_pos[xb]];
       total_distance -= P.dist[c][tgt_state.tok_to_pos[xc]];
-      hash ^= hash_src[0][a];
-      hash ^= hash_src[xb][b];
-      hash ^= hash_src[xc][c];
+      hash ^= hash_pos[b][tgt_state.tok_to_pos[xb]];
+      hash ^= hash_pos[c][tgt_state.tok_to_pos[xc]];
 
       src_state.pos_to_tok[a]  = xc;
       src_state.pos_to_tok[b]  = 0;
@@ -315,9 +307,8 @@ struct beam_state {
 
       total_distance += P.dist[c][tgt_state.tok_to_pos[xb]];
       total_distance += P.dist[a][tgt_state.tok_to_pos[xc]];
-      hash ^= hash_src[0][b];
-      hash ^= hash_src[xb][c];
-      hash ^= hash_src[xc][a];
+      hash ^= hash_pos[c][tgt_state.tok_to_pos[xb]];
+      hash ^= hash_pos[a][tgt_state.tok_to_pos[xc]];
 
       last_direction_src ^= 1;
 
@@ -338,9 +329,8 @@ struct beam_state {
 
       total_distance -= P.dist[src_state.tok_to_pos[xb]][b];
       total_distance -= P.dist[src_state.tok_to_pos[xc]][c];
-      hash ^= hash_tgt[0][a];
-      hash ^= hash_tgt[xb][b];
-      hash ^= hash_tgt[xc][c];
+      hash ^= hash_pos[src_state.tok_to_pos[xb]][b];
+      hash ^= hash_pos[src_state.tok_to_pos[xc]][c];
     
       tgt_state.pos_to_tok[a]  = xc;
       tgt_state.pos_to_tok[b]  = 0;
@@ -351,9 +341,8 @@ struct beam_state {
 
       total_distance += P.dist[src_state.tok_to_pos[xb]][c];
       total_distance += P.dist[src_state.tok_to_pos[xc]][a];
-      hash ^= hash_tgt[0][b];
-      hash ^= hash_tgt[xb][c];
-      hash ^= hash_tgt[xc][a];
+      hash ^= hash_pos[src_state.tok_to_pos[xb]][c];
+      hash ^= hash_pos[src_state.tok_to_pos[xc]][a];
 
       last_direction_tgt ^= 1;
 
@@ -366,7 +355,7 @@ struct beam_state {
 };
 
 
-const i32 TREE_SIZE  = 1<<19;
+const i32 TREE_SIZE  = 1<<18;
 const i32 LIMIT_SIZE = TREE_SIZE - 50'000;
 
 using euler_tour_edge = u8;
@@ -398,9 +387,9 @@ euler_tour get_new_tree(){
   return tour;
 }
 
-const u64 HASH_SIZE = 1ull<<28;
+const u64 HASH_SIZE = 1ull<<30;
 const u64 HASH_MASK = HASH_SIZE-1;
-atomic<uint64_t> *HS = nullptr;
+uint64_t *HS = nullptr;
 
 
 vector<u8> find_solution
@@ -475,8 +464,9 @@ void traverse_euler_tour
 
           FOR(m, 12) {
             auto [v,h] = S.plan_move(P, m);
-            auto prev = HS[h&HASH_MASK].exchange(h, std::memory_order_relaxed);
+            auto prev = HS[h&HASH_MASK];
             if(prev != h) {
+              HS[h&HASH_MASK] = h;
               low = min(low, v);
               high = max(high, v);
               histogram[v] += 1;
@@ -519,7 +509,7 @@ vector<u8> beam_search
  i64 width)
 {
   if(!HS) {
-    auto ptr = new atomic<uint64_t>[HASH_SIZE];
+    auto ptr = new uint64_t[HASH_SIZE];
     HS = ptr;
   }
 
