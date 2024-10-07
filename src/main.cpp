@@ -354,9 +354,8 @@ struct beam_state {
   }
 };
 
-
-const i32 TREE_SIZE  = 1<<18;
-const i32 LIMIT_SIZE = TREE_SIZE - 50'000;
+const i32 MIN_TREE_SIZE  = 1<<18;
+i64 tree_size = MIN_TREE_SIZE;
 
 using euler_tour_edge = u8;
 struct euler_tour {
@@ -377,7 +376,7 @@ euler_tour get_new_tree(){
   {
     if(tree_pool.empty()) {
       tour.size = 0;
-      tour.data = new u8[TREE_SIZE];
+      tour.data = new u8[tree_size];
     }else{
       tour = tree_pool.back();
       tour.size = 0;
@@ -489,7 +488,7 @@ void traverse_euler_tour
       nstack_moves -= 1;
       S.undo_move(P, stack_moves[nstack_moves]);
 
-      if(tour_next->size > LIMIT_SIZE) {
+      if(__builtin_expect(tour_next->size + ncommit + 1024 > tree_size, false)) {
         FORD(i,ncommit-1,0) tour_next->push(0);
         tour_next->push(0);
         tours_next.eb(get_new_tree());
@@ -534,8 +533,16 @@ vector<u8> beam_search
     timer timer_s;
     vector<euler_tour> tours_next;
 
+    bool increased_tree_size = false;
+    if(tours_current.size() > 512) {
+      for(auto &t : tree_pool) delete[] t.data;
+      tree_pool.clear();
+      tree_size *= 2;
+      increased_tree_size = true;
+    }
+
     sort(all(tours_current), [&](auto const& t1, auto const& t2) {
-      return t1.size > t2.size;
+      return t1.size < t2.size;
     });
 
     i64 low = max_score, high = 0;
@@ -569,7 +576,11 @@ vector<u8> beam_search
 
         #pragma omp critical
         {
-          tree_pool.eb(tour_current);
+          if(!increased_tree_size) {
+            tree_pool.eb(tour_current);
+          }else{
+            delete[] tour_current.data;
+          }
         }
       }
 #pragma omp critical
