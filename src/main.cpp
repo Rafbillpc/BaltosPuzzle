@@ -1,7 +1,26 @@
 #include "header.hpp"
 #include <omp.h>
 
+struct uint64_hash {
+  static inline uint64_t rotr(uint64_t x, unsigned k) {
+    return (x >> k) | (x << (8U * sizeof(uint64_t) - k));
+  }
+
+  static inline uint64_t hash_int(uint64_t x) noexcept {
+    auto h1 = x * (uint64_t)(0xA24BAED4963EE407);
+    auto h2 = rotr(x, 32U) * (uint64_t)(0x9FB21C651E98DF25);
+    auto h = rotr(h1 + h2, 32U);
+    return h;
+  }
+
+  size_t operator()(uint64_t x) const {
+    static const uint64_t FIXED_RANDOM = std::chrono::steady_clock::now().time_since_epoch().count();
+    return hash_int(x + FIXED_RANDOM);
+  }
+};
+
 const u32 MAX_SIZE = 2107;
+const u32 MAX_SOLUTION_SIZE = 50'000;
 
 u64 bit(u64 x) { return 1ull<<x; }
 
@@ -155,10 +174,8 @@ map<i32, puzzle_state> load_configurations() {
   return C;
 }
 
-u64 hash_pos[MAX_SIZE][MAX_SIZE];
-
-void init_hash() {
-  FOR(i, MAX_SIZE) FOR(j, MAX_SIZE) hash_pos[i][j] = rng.randomInt64();
+u64 hash_pos(u32 x, u32 y) {
+  return uint64_hash::hash_int(x * 4096 + y);
 }
 
 void init_rng() {
@@ -222,7 +239,7 @@ struct beam_state {
   
   u64 get_hash0(puzzle_data const& P) const {
     u64 h = 0;
-    FORU(u, 1, P.size-1) h ^= hash_pos[src_state.tok_to_pos[u]][tgt_state.tok_to_pos[u]];
+    FORU(u, 1, P.size-1) h ^= hash_pos(src_state.tok_to_pos[u], tgt_state.tok_to_pos[u]);
     return h;
   }
 
@@ -252,16 +269,16 @@ struct beam_state {
       if(loop2_token(xb)) v -= 2;
       if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
          loop2_token(xc)) v -= 2;
-      h ^= hash_pos[b][tgt_state.tok_to_pos[xb]];
-      h ^= hash_pos[c][tgt_state.tok_to_pos[xc]];
+      h ^= hash_pos(b, tgt_state.tok_to_pos[xb]);
+      h ^= hash_pos(c, tgt_state.tok_to_pos[xc]);
 
       v += P.dist[c][tgt_state.tok_to_pos[xb]];
       v += P.dist[a][tgt_state.tok_to_pos[xc]];
       if(loop2_token(xb)) v += 2;
       if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
          loop2_token(xc)) v += 2;
-      h ^= hash_pos[c][tgt_state.tok_to_pos[xb]];
-      h ^= hash_pos[a][tgt_state.tok_to_pos[xc]];
+      h ^= hash_pos(c, tgt_state.tok_to_pos[xb]);
+      h ^= hash_pos(a, tgt_state.tok_to_pos[xc]);
     }else{
       i32 a = tgt_state.tok_to_pos[0], b, c;
       move -= 6;
@@ -282,16 +299,16 @@ struct beam_state {
       if(loop2_token(xb)) v -= 2;
       if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
          loop2_token(xc)) v -= 2;
-      h ^= hash_pos[src_state.tok_to_pos[xb]][b];
-      h ^= hash_pos[src_state.tok_to_pos[xc]][c];
+      h ^= hash_pos(src_state.tok_to_pos[xb], b);
+      h ^= hash_pos(src_state.tok_to_pos[xc], c);
 
       v += P.dist[src_state.tok_to_pos[xb]][c];
       v += P.dist[src_state.tok_to_pos[xc]][a];
       if(loop2_token(xb)) v += 2;
       if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
          loop2_token(xc)) v += 2;
-      h ^= hash_pos[src_state.tok_to_pos[xb]][c];
-      h ^= hash_pos[src_state.tok_to_pos[xc]][a];
+      h ^= hash_pos(src_state.tok_to_pos[xb], c);
+      h ^= hash_pos(src_state.tok_to_pos[xc], a);
     }
 
     return mt(v + (last_direction_src == last_direction_tgt), h);
@@ -317,8 +334,8 @@ struct beam_state {
       if(loop2_token(xb)) total_distance -= 2;
       if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
          loop2_token(xc)) total_distance -= 2;
-      hash ^= hash_pos[b][tgt_state.tok_to_pos[xb]];
-      hash ^= hash_pos[c][tgt_state.tok_to_pos[xc]];
+      hash ^= hash_pos(b, tgt_state.tok_to_pos[xb]);
+      hash ^= hash_pos(c, tgt_state.tok_to_pos[xc]);
 
       src_state.pos_to_tok[a]  = xc;
       src_state.pos_to_tok[b]  = 0;
@@ -329,8 +346,8 @@ struct beam_state {
 
       total_distance += P.dist[c][tgt_state.tok_to_pos[xb]];
       total_distance += P.dist[a][tgt_state.tok_to_pos[xc]];
-      hash ^= hash_pos[c][tgt_state.tok_to_pos[xb]];
-      hash ^= hash_pos[a][tgt_state.tok_to_pos[xc]];
+      hash ^= hash_pos(c, tgt_state.tok_to_pos[xb]);
+      hash ^= hash_pos(a, tgt_state.tok_to_pos[xc]);
       if(loop2_token(xb)) total_distance += 2;
       if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
          loop2_token(xc)) total_distance += 2;
@@ -357,8 +374,8 @@ struct beam_state {
       if(loop2_token(xb)) total_distance -= 2;
       if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
          loop2_token(xc)) total_distance -= 2;
-      hash ^= hash_pos[src_state.tok_to_pos[xb]][b];
-      hash ^= hash_pos[src_state.tok_to_pos[xc]][c];
+      hash ^= hash_pos(src_state.tok_to_pos[xb], b);
+      hash ^= hash_pos(src_state.tok_to_pos[xc], c);
     
       tgt_state.pos_to_tok[a]  = xc;
       tgt_state.pos_to_tok[b]  = 0;
@@ -372,8 +389,8 @@ struct beam_state {
       if(loop2_token(xb)) total_distance += 2;
       if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
          loop2_token(xc)) total_distance += 2;
-      hash ^= hash_pos[src_state.tok_to_pos[xb]][c];
-      hash ^= hash_pos[src_state.tok_to_pos[xc]][a];
+      hash ^= hash_pos(src_state.tok_to_pos[xb], c);
+      hash ^= hash_pos(src_state.tok_to_pos[xc], a);
 
       last_direction_tgt ^= 1;
 
@@ -432,7 +449,7 @@ vector<u8> find_solution
 {
   beam_state S; S.reset(P, initial_state, initial_direction);
 
-  vector<u8> stack_moves(istep+1, 255);
+  static thread_local u8 stack_moves[MAX_SOLUTION_SIZE];
   i32 nstack_moves = 0;
 
   FOR(iedge, tour_current.size) {
@@ -445,7 +462,7 @@ vector<u8> find_solution
       if(nstack_moves == istep+1) {
         auto v = S.value(P);
         if(v == 0) {
-          return stack_moves;
+          return vector<u8>(stack_moves, stack_moves + nstack_moves);
         }
       }
 
@@ -472,10 +489,10 @@ void traverse_euler_tour
 {
   beam_state S; S.reset(P, initial_state, initial_direction);
 
-  vector<u8> stack_moves(istep+1);
+  static thread_local u8 stack_moves[MAX_SOLUTION_SIZE];
   i32 nstack_moves = 0;
   
-  vector<u32> stack_automaton(istep+1);
+  static thread_local u32 stack_automaton[MAX_SOLUTION_SIZE];
   stack_automaton[0] = 6*6+6;
 
   i32 ncommit = 0;
@@ -769,7 +786,6 @@ int main(int argc, char** argv) {
   i32 initial_directions = atoi(argv[3]);
   debug(sz, width);
   
-  init_hash();
   init_rng();
   automaton::init();
   
