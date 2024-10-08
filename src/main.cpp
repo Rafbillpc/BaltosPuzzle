@@ -1,6 +1,8 @@
 #include "header.hpp"
-#include <fstream>
+#include <memory>
 #include <omp.h>
+
+const u32 MAX_SIZE = 2107;
 
 struct puzzle_rot {
   u32 data[6];
@@ -11,8 +13,8 @@ struct puzzle_data {
   u32 size;
   u32 center;
 
-  vector<puzzle_rot> data;
-  vector<vector<i32>> dist;
+  puzzle_rot data[MAX_SIZE];
+  i32 dist[MAX_SIZE][MAX_SIZE];
 
   void make(i32 n_) {
     n = n_;
@@ -39,7 +41,6 @@ struct puzzle_data {
 
     center = M[{n-1,n-1}];
     
-    data.resize(size);
     FOR(u, 2*n-1) {
       u32 ncol = 2*n-1 - abs(u-(n-1));
       FOR(icol, ncol) {
@@ -57,9 +58,8 @@ struct puzzle_data {
         FOR(j, 6) data[ix].data[j] = at[j];
       }
     }
-    
-    dist.resize(size);
-    FOR(u, size) dist[u].assign(size, 999'999'999);
+
+    FOR(u, size) FOR(v, size) dist[u][v] = 999'999'999;
     FOR(u, size) {
       FOR(x, 6) {
         i32 v = u;
@@ -75,34 +75,8 @@ struct puzzle_data {
         }
       }
     }
-    
-    // FOR(u, size) {
-    //   vector<i32> Q(size); i32 nq = 0;
-    //   vector<i32> D(size, 99999);
-    //   auto add = [&](i32 v, i32 d) {
-    //     if(d < D[v]) { D[v] = d; Q[nq++] = v; };
-    //   };
-    //   add(u,0);
-    //   FOR(iq, size) {
-    //     auto v = Q[iq];
-    //     FOR(j, 6) add(data[v].data[j], D[v]+1);
-    //   }
-
-    //   // FOR(u, size) {
-    //   //   FOR(j, 6) cerr << data[u].data[j] << ' ';
-    //   //   cerr << endl;
-    //   // }
-
-    //   FOR(v, size) {
-    //     runtime_assert(D[v] < 99999);
-    //   }
-    //   dist[u] = D;
-    // }
-
   }
 };
-
-const u32 MAX_SIZE = 2107;
 
 struct puzzle_state {
   u32 pos_to_tok[MAX_SIZE];
@@ -354,14 +328,15 @@ struct beam_state {
   }
 };
 
-const i32 MIN_TREE_SIZE  = 1<<18;
+const i64 MIN_TREE_SIZE  = 1<<17;
 i64 tree_size = MIN_TREE_SIZE;
 
 using euler_tour_edge = u8;
 struct euler_tour {
-  i32              size;
+  i64 max_size;
+  i64 size;
   euler_tour_edge* data;
-
+  
   FORCE_INLINE void reset() { size = 0; }
   FORCE_INLINE void push(i32 x) {
     data[size++] = x;
@@ -375,6 +350,7 @@ euler_tour get_new_tree(){
 #pragma omp critical
   {
     if(tree_pool.empty()) {
+      tour.max_size = tree_size;
       tour.size = 0;
       tour.data = new u8[tree_size];
     }else{
@@ -445,11 +421,19 @@ void traverse_euler_tour
   i32 ncommit = 0;
   if(tours_next.empty()) tours_next.eb(get_new_tree());
   auto *tour_next = &tours_next.back(); 
+  runtime_assert(tour_next->max_size == tree_size);
 
   FOR(iedge, tour_current.size) {
     auto const& edge = tour_current[iedge];
     if(edge > 0) {
+      // if(__builtin_expect(stack_moves[nstack_moves] == edge - 1, false) &&
+      //    tour_next->size > 0 &&
+      //    tour_next->data[tour_next->size-1] == 0)
+      //   {
+      //     tour_next->size -= 1;
+      //   }else{
       stack_moves[nstack_moves] = edge - 1;
+      // }
       S.do_move(P, stack_moves[nstack_moves]);
       nstack_moves += 1;
     }else{
@@ -487,15 +471,16 @@ void traverse_euler_tour
 				
       nstack_moves -= 1;
       S.undo_move(P, stack_moves[nstack_moves]);
-
-      if(__builtin_expect(tour_next->size + ncommit + 1024 > tree_size, false)) {
-        FORD(i,ncommit-1,0) tour_next->push(0);
-        tour_next->push(0);
-        tours_next.eb(get_new_tree());
-        tour_next = &tours_next.back();
-        ncommit = 0;
-      }
     }
+    
+    if(__builtin_expect(tour_next->size + 2 * istep + 128 > tree_size, false)) {
+      FORD(i,ncommit-1,0) tour_next->push(0);
+      tour_next->push(0);
+      tours_next.eb(get_new_tree());
+      tour_next = &tours_next.back();
+      ncommit = 0;
+    }
+
   }
 
   runtime_assert(false);
@@ -534,7 +519,7 @@ vector<u8> beam_search
     vector<euler_tour> tours_next;
 
     bool increased_tree_size = false;
-    if(tours_current.size() > 512) {
+    if(tours_current.size() > 128) {
       for(auto &t : tree_pool) delete[] t.data;
       tree_pool.clear();
       tree_size *= 2;
@@ -728,9 +713,9 @@ int main(int argc, char** argv) {
   auto C = load_configurations();
 
   runtime_assert(C.count(sz));
-  puzzle_data P;
-  P.make(sz);
-  solve(P, C[sz], initial_directions, width);
+  unique_ptr<puzzle_data> P = make_unique<puzzle_data>();
+  P->make(sz);
+  solve(*P, C[sz], initial_directions, width);
 
   return 0;
 }
