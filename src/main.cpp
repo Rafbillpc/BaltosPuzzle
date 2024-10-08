@@ -1,8 +1,9 @@
 #include "header.hpp"
-#include <memory>
 #include <omp.h>
 
 const u32 MAX_SIZE = 2107;
+
+u64 bit(u64 x) { return 1ull<<x; }
 
 struct puzzle_rot {
   u32 data[6];
@@ -76,6 +77,25 @@ struct puzzle_data {
       }
     }
   }
+};
+
+namespace automaton {
+  const u32 NUM_STATES = 7*7;
+  
+  u32 next_state[NUM_STATES][12];
+  u32 allow_move[NUM_STATES];
+
+  void init() {
+    FOR(i, NUM_STATES) allow_move[i] = bit(12)-1;
+    FOR(x, 7) FOR(y, 7) {
+      u32 xy = x*6+y;
+      if(x != 6) allow_move[xy] ^= bit((x+3)%6);
+      if(y != 6) allow_move[xy] ^= bit(6 + (y+3)%6);
+      FOR(m, 6) next_state[xy][m] = m*6+y;
+      FOR(m, 6) next_state[xy][6+m] = x*6+m;
+    }
+  }
+
 };
 
 struct puzzle_state {
@@ -172,10 +192,21 @@ struct beam_state {
     FORU(u, 1, P.size-1) {
       total_distance += P.dist[src_state.tok_to_pos[u]][tgt_state.tok_to_pos[u]];
     }
+    FORU(u, 1, P.size-1) if(loop2_token(u)) total_distance += 1;
 
     hash = get_hash0(P);
   }
 
+  bool loop2_token(u32 u) const {
+    u32 pos1 = src_state.tok_to_pos[u], pos2 = tgt_state.tok_to_pos[u];
+    if(pos1 != pos2 &&
+       src_state.pos_to_tok[pos2] != 0 &&
+       src_state.pos_to_tok[pos2] == tgt_state.pos_to_tok[pos1]) {
+      return 1;
+    }
+    return 0;
+  }
+  
   i64 value(puzzle_data const& P) const {
     return total_distance + (last_direction_src != last_direction_tgt);
     
@@ -183,6 +214,8 @@ struct beam_state {
     // FORU(u, 1, P.size-1) {
     //   v += P.dist[src_state.tok_to_pos[u]][tgt_state.tok_to_pos[u]];
     // }
+    // FORU(u, 1, P.size-1) if(loop2_token(u)) v += 1;
+
     // runtime_assert(v == total_distance);
     // return v;
   }
@@ -197,7 +230,7 @@ struct beam_state {
     return hash;
   }
   
-  tuple<i64, u64> plan_move(puzzle_data const& P, u8 move) const {
+  tuple<i64, u64> plan_move(puzzle_data const& P, u8 move) {
     i64 v = total_distance; u64 h = hash;
     
     if(move < 6) {
@@ -216,11 +249,17 @@ struct beam_state {
 
       v -= P.dist[b][tgt_state.tok_to_pos[xb]];
       v -= P.dist[c][tgt_state.tok_to_pos[xc]];
+      if(loop2_token(xb)) v -= 2;
+      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
+         loop2_token(xc)) v -= 2;
       h ^= hash_pos[b][tgt_state.tok_to_pos[xb]];
       h ^= hash_pos[c][tgt_state.tok_to_pos[xc]];
 
       v += P.dist[c][tgt_state.tok_to_pos[xb]];
       v += P.dist[a][tgt_state.tok_to_pos[xc]];
+      if(loop2_token(xb)) v += 2;
+      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
+         loop2_token(xc)) v += 2;
       h ^= hash_pos[c][tgt_state.tok_to_pos[xb]];
       h ^= hash_pos[a][tgt_state.tok_to_pos[xc]];
     }else{
@@ -240,11 +279,17 @@ struct beam_state {
 
       v -= P.dist[src_state.tok_to_pos[xb]][b];
       v -= P.dist[src_state.tok_to_pos[xc]][c];
+      if(loop2_token(xb)) v -= 2;
+      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
+         loop2_token(xc)) v -= 2;
       h ^= hash_pos[src_state.tok_to_pos[xb]][b];
       h ^= hash_pos[src_state.tok_to_pos[xc]][c];
 
       v += P.dist[src_state.tok_to_pos[xb]][c];
       v += P.dist[src_state.tok_to_pos[xc]][a];
+      if(loop2_token(xb)) v += 2;
+      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
+         loop2_token(xc)) v += 2;
       h ^= hash_pos[src_state.tok_to_pos[xb]][c];
       h ^= hash_pos[src_state.tok_to_pos[xc]][a];
     }
@@ -269,6 +314,9 @@ struct beam_state {
 
       total_distance -= P.dist[b][tgt_state.tok_to_pos[xb]];
       total_distance -= P.dist[c][tgt_state.tok_to_pos[xc]];
+      if(loop2_token(xb)) total_distance -= 2;
+      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
+         loop2_token(xc)) total_distance -= 2;
       hash ^= hash_pos[b][tgt_state.tok_to_pos[xb]];
       hash ^= hash_pos[c][tgt_state.tok_to_pos[xc]];
 
@@ -283,6 +331,9 @@ struct beam_state {
       total_distance += P.dist[a][tgt_state.tok_to_pos[xc]];
       hash ^= hash_pos[c][tgt_state.tok_to_pos[xb]];
       hash ^= hash_pos[a][tgt_state.tok_to_pos[xc]];
+      if(loop2_token(xb)) total_distance += 2;
+      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
+         loop2_token(xc)) total_distance += 2;
 
       last_direction_src ^= 1;
 
@@ -303,6 +354,9 @@ struct beam_state {
 
       total_distance -= P.dist[src_state.tok_to_pos[xb]][b];
       total_distance -= P.dist[src_state.tok_to_pos[xc]][c];
+      if(loop2_token(xb)) total_distance -= 2;
+      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
+         loop2_token(xc)) total_distance -= 2;
       hash ^= hash_pos[src_state.tok_to_pos[xb]][b];
       hash ^= hash_pos[src_state.tok_to_pos[xc]][c];
     
@@ -315,6 +369,9 @@ struct beam_state {
 
       total_distance += P.dist[src_state.tok_to_pos[xb]][c];
       total_distance += P.dist[src_state.tok_to_pos[xc]][a];
+      if(loop2_token(xb)) total_distance += 2;
+      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
+         loop2_token(xc)) total_distance += 2;
       hash ^= hash_pos[src_state.tok_to_pos[xb]][c];
       hash ^= hash_pos[src_state.tok_to_pos[xc]][a];
 
@@ -417,6 +474,9 @@ void traverse_euler_tour
 
   vector<u8> stack_moves(istep+1);
   i32 nstack_moves = 0;
+  
+  vector<u32> stack_automaton(istep+1);
+  stack_automaton[0] = 6*6+6;
 
   i32 ncommit = 0;
   if(tours_next.empty()) tours_next.eb(get_new_tree());
@@ -435,6 +495,8 @@ void traverse_euler_tour
       stack_moves[nstack_moves] = edge - 1;
       // }
       S.do_move(P, stack_moves[nstack_moves]);
+      stack_automaton[nstack_moves+1]
+        = automaton::next_state[stack_automaton[nstack_moves]][stack_moves[nstack_moves]];
       nstack_moves += 1;
     }else{
       if(nstack_moves == istep) {
@@ -445,7 +507,7 @@ void traverse_euler_tour
             ncommit += 1;
           }
 
-          FOR(m, 12) {
+          FOR(m, 12) if(automaton::allow_move[stack_automaton[istep]]&bit(m)) {
             auto [v,h] = S.plan_move(P, m);
             auto prev = HS[h&HASH_MASK];
             if(prev != h) {
@@ -709,6 +771,7 @@ int main(int argc, char** argv) {
   
   init_hash();
   init_rng();
+  automaton::init();
   
   auto C = load_configurations();
 
