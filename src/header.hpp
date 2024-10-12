@@ -1,22 +1,12 @@
 #pragma once
-#define PRAGMA #pragma
-#ifdef CP_GEN
-PRAGMA GCC optimize "-O3,omit-frame-pointer,inline,unroll-all-loops,fast-math"
-PRAGMA GCC target "tune=native"
-#endif
 
-#pragma once
-#ifdef CP_GEN
-#define INCLUDE #include
-INCLUDE <bits/stdc++.h>
-INCLUDE <sys/time.h>
-INCLUDE <immintrin.h>
-INCLUDE <x86intrin.h>
-#else
 #include <bits/stdc++.h>
 #include <sys/time.h>
-#include <immintrin.h>
-#include <x86intrin.h>
+
+#ifdef __CUDACC__
+#define CUDA_FN __host__ __device__
+#else
+#define CUDA_FN
 #endif
 
 using namespace std;
@@ -149,6 +139,7 @@ struct RNG {
   constexpr u32 max(){ return numeric_limits<u32>::max(); }
   u32 operator()() { return randomInt32(); }
 
+  CUDA_FN
   static FORCE_INLINE uint64_t rotl(const uint64_t x, int k) {
     return (x << k) | (x >> (64 - k));
   }
@@ -171,6 +162,7 @@ struct RNG {
     s[1] = sm.splitmix64();
   }
 
+  CUDA_FN
   uint64_t next() {
     const uint64_t s0 = s[0];
     uint64_t s1 = s[1];
@@ -183,10 +175,12 @@ struct RNG {
     return result;
   }
 
+  CUDA_FN
   inline u32 randomInt32() {
     return next();
   }
 
+  CUDA_FN
   inline u64 randomInt64() {
     return next();
   }
@@ -207,10 +201,12 @@ struct RNG {
     return l + random64(r-l+1);
   }
 
+  CUDA_FN
   inline double randomDouble() {
     return (double)randomInt32() / 4294967296.0;
   }
 
+  CUDA_FN
   inline float randomFloat() {
     return (float)randomInt32() / 4294967296.0;
   }
@@ -308,3 +304,26 @@ void debug_impl_seq(T const& t, V const&... v) {
     debug_impl_seq(x);                                                  \
     cerr << endl << flush;                                              \
   } while(0)
+
+// Hash
+
+struct uint64_hash {
+  static inline constexpr uint64_t rotr(uint64_t x, unsigned k) {
+    return (x >> k) | (x << (8U * sizeof(uint64_t) - k));
+  }
+
+  static inline constexpr uint64_t hash_int(uint64_t x) noexcept {
+    auto h1 = x * (uint64_t)(0xA24BAED4963EE407);
+    auto h2 = rotr(x, 32U) * (uint64_t)(0x9FB21C651E98DF25);
+    auto h = rotr(h1 + h2, 32U);
+    return h;
+  }
+
+  size_t operator()(uint64_t x) const {
+    static const uint64_t FIXED_RANDOM = std::chrono::steady_clock::now().time_since_epoch().count();
+    return hash_int(x + FIXED_RANDOM);
+  }
+};
+
+static inline
+u64 bit(u64 x) { return 1ull<<x; }
