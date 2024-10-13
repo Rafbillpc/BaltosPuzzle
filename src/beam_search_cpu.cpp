@@ -47,11 +47,10 @@ namespace beam_search_cpu {
 
   vector<u8> find_solution
   (puzzle_data const& P,
-   puzzle_state const& initial_state, u8 initial_direction,
+   beam_state S,
    i32 istep,
    euler_tour tour_current)
   {
-    beam_state S; S.reset(P, initial_state, initial_direction);
 
     static thread_local u8 stack_moves[MAX_SOLUTION_SIZE];
     i32 nstack_moves = 0;
@@ -84,15 +83,15 @@ namespace beam_search_cpu {
 
   void traverse_euler_tour
   (puzzle_data const& P,
-   puzzle_state const& initial_state, u8 initial_direction,
+   beam_state S,
    i32 istep,
    euler_tour tour_current,
    vector<euler_tour> &tours_next,
    i64* histogram, i64& low, i64& high,
-   i32 cutoff, float cutoff_keep_probability)
+   i32 cutoff, float cutoff_keep_probability,
+   i32& prefix_size, i32* prefix
+   )
   {
-    beam_state S; S.reset(P, initial_state, initial_direction);
-
     static thread_local u8 stack_moves[MAX_SOLUTION_SIZE];
     i32 nstack_moves = 0;
   
@@ -104,17 +103,22 @@ namespace beam_search_cpu {
     auto *tour_next = &tours_next.back(); 
     runtime_assert(tour_next->max_size == tree_size);
 
+    f32 cutoff_running = 0.999;
+
     FOR(iedge, tour_current.size) {
       auto const& edge = tour_current[iedge];
       if(edge > 0) {
-        // if(__builtin_expect(stack_moves[nstack_moves] == edge - 1, false) &&
-        //    tour_next->size > 0 &&
-        //    tour_next->data[tour_next->size-1] == 0)
-        //   {
-        //     tour_next->size -= 1;
-        //   }else{
+        
+        if(__builtin_expect(nstack_moves < prefix_size, false)) {
+          if(prefix[nstack_moves] == 0) {
+            prefix[nstack_moves] = edge;
+          }
+          if(prefix[nstack_moves] != edge) {
+            prefix_size = nstack_moves;
+          }
+        }
+        
         stack_moves[nstack_moves] = edge - 1;
-        // }
         S.do_move(P, stack_moves[nstack_moves]);
         stack_automaton[nstack_moves+1]
           = automaton::next_state[stack_automaton[nstack_moves]][stack_moves[nstack_moves]];
@@ -122,7 +126,18 @@ namespace beam_search_cpu {
       }else{
         if(nstack_moves == istep) {
           auto v = S.value(P);
-          if(v < cutoff || (v == cutoff && rng.randomFloat() < cutoff_keep_probability)) {
+          
+          bool keep = v < cutoff;
+          if(v == cutoff) {
+            cutoff_running += cutoff_keep_probability;
+            if(cutoff_running >= 1.0) {
+              cutoff_running -= 1.0;
+              keep = 1;
+            }
+          }
+
+          if(keep) {
+            // if(v < cutoff || (v == cutoff && rng.randomFloat() < cutoff_keep_probability)) {
             while(ncommit < nstack_moves) {
               tour_next->push(1+stack_moves[ncommit]);
               ncommit += 1;
@@ -166,6 +181,21 @@ namespace beam_search_cpu {
     }
   }
 
+  void merge_prefix
+  (i32& prefix_size, i32* prefix,
+   i32 const& prefix2_size, i32 const* prefix2)
+  {
+    prefix_size = min(prefix_size, prefix2_size);
+    FOR(i, prefix_size) {
+      if(prefix[i] == 0) prefix[i] = prefix2[i];
+      if(prefix2[i] == 0) return;
+      if(prefix[i] != prefix2[i]) {
+        prefix_size = i;
+        return;
+      }
+    }
+  }
+  
   vector<u8> beam_search
   (puzzle_data const& P,
    puzzle_state const& initial_state,
@@ -177,8 +207,9 @@ namespace beam_search_cpu {
       HS = ptr;
     }
 
-    beam_state S; S.reset(P, initial_state, initial_direction);
-    i32 max_score = S.total_distance + 1000; // TODO
+    beam_state state; state.reset(P, initial_state, initial_direction);
+    
+    i32 max_score = state.total_distance + 1000; // TODO
     debug(max_score);
     vector<i64> histogram(max_score+1, 0);
   
@@ -210,13 +241,17 @@ namespace beam_search_cpu {
         return t1.size < t2.size;
       });
 
+      i32 prefix_size = istep+1;
+      vector<i32> prefix(istep+1);
       i64 low = max_score, high = 0;
-    
+      
 #pragma omp parallel
       {
         vector<i64>& L_histogram = L_histograms[omp_get_thread_num()];
         vector<euler_tour> L_tours_next;
-      
+        vector<i32> L_prefix(istep+1, 0);
+        i32 L_prefix_size = istep+1;
+        
         i64 L_low = max_score, L_high = 0;
       
         while(1) {
@@ -232,12 +267,13 @@ namespace beam_search_cpu {
           if(tour_current.size == 0) break;
 
           traverse_euler_tour
-            (P, initial_state, initial_direction,
+            (P, state,
              istep,
              tour_current, 
              L_tours_next, 
              L_histogram.data(), L_low, L_high,
-             cutoff, cutoff_keep_probability);
+             cutoff, cutoff_keep_probability,
+             L_prefix_size, L_prefix.data());
 
 #pragma omp critical
           {
@@ -260,13 +296,12 @@ namespace beam_search_cpu {
           FORU(i,L_low,L_high) L_histogram[i] = 0;
           low = min(low, L_low);
           high = max(high, L_high);
+
+          merge_prefix
+            (prefix_size, prefix.data(),
+             L_prefix_size, L_prefix.data());
         }
       }
-
-      // if(best == 0) {
-      //   debug("FOUND");
-      //   return; // TODO: find solution
-      // }
     
       { i64 total_count = 0;
         cutoff = max_score;
@@ -284,12 +319,13 @@ namespace beam_search_cpu {
 
       i64 total_size = 0;
       for(auto const& t : tours_next) total_size += t.size;
-    
+      
       cerr << setw(6) << (istep+1) <<
         ": scores = " << setw(3) << low << ".." << setw(3) << cutoff <<
         ", tree size = " << setw(12) << total_size <<
         ", num trees = " << setw(4) << tours_next.size() <<
         ", elapsed = " << setw(10) << timer_s.elapsed() << "s" <<
+        ", prefix size = " << prefix_size << 
         endl;
 
       tours_current = tours_next;
@@ -312,7 +348,7 @@ namespace beam_search_cpu {
             if(tour_current.size == 0) break;
           
             auto lsolution = find_solution
-              (P, initial_state, initial_direction,
+              (P, state,
                istep,
                tour_current);
             if(!lsolution.empty()) {

@@ -1,277 +1,298 @@
+#include "base.hpp"
 #include "beam_state.hpp"
 #include <cuda_device_runtime_api.h>
 #include <cuda_runtime_api.h>
-#include <driver_types.h>
+#include <thrust/detail/copy.h>
+#include <thrust/detail/fill.inl>
 #include <thrust/detail/raw_pointer_cast.h>
-#include <thrust/device_ptr.h>
-#include <thrust/system_error.h>
 #include <thrust/device_vector.h>
-#include <thrust/host_vector.h>
-#include <thrust/execution_policy.h>
 
-#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(cudaError_t code, const char *file, int line){
+#define CUDA_CHECK(ans) { cuda_check((ans), __FILE__, __LINE__); }
+inline void cuda_check(cudaError_t code, const char *file, int line){
   if(code != cudaSuccess) {
-    fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+    fprintf(stderr,"cuda: %s %s %d\n", cudaGetErrorString(code), file, line);
     exit(code);
   }
 }
 
 namespace beam_search_gpu {
-
-  const i64 TREE_SIZE = 1<<14;
   
-  const u64 HASH_SIZE = 1ull<<26;
+  const u64 HASH_SIZE = 1ull<<28;
   const u64 HASH_MASK = HASH_SIZE-1;
 
-  using euler_tour_edge = u8;
-  struct euler_tour {
-    i64 max_size;
-    i64 size;
-    euler_tour_edge* data;
-  
-    FORCE_INLINE void reset() { size = 0; }
-    FORCE_INLINE void push(i32 x) {
-      data[size++] = x;
-    }
-    FORCE_INLINE u8& operator[](i32 ix) { return data[ix]; }
-  };
+  const u32 DEPTH_LIMIT = 128;
 
-  struct traverse_input {
-    puzzle_data P;
-    puzzle_state initial_state;
-    u8 initial_direction;
-    i32 num_tours_current;
-    i32 istep;
-    i32 cutoff;
+  const u64 NUM_BLOCKS = 80; // could be more
+  const u64 THREADS_PER_BLOCK = 1024;
+
+  const u64 NUM_THREADS = NUM_BLOCKS * THREADS_PER_BLOCK;
+  const u64 TREE_SIZE_PER_THREAD = 1 << 15;
+  // could go as far as 1 << 20 and fit in memory?
+
+  __constant__ const u8 automaton_table[12] = {3,4,5,0,1,2,9,10,11,6,7,8};
+  
+  struct traverse_euler_tour_t {
+    puzzle_data puzzle;
+    beam_state  state;
+
+    u32  max_score;
+    u64* hash_table;
+    u64* histogram;
+    u32  low, high;
+    
+    u32 istep;
+    u32 cutoff;
     f32 cutoff_keep_probability;
-  };
-  
-  struct traverse_output {
-    i64 total_size;
-    i32 next_tour_current;
-    i32 num_tours_next;
-    i64 low;
-    i64 high;
-  };
 
-  __global__
-  void traverse_euler_tour
-  (traverse_input const* I,
-   traverse_output* O,
-   RNG* rngs,
-   u64* hash_table,
-   i32* tours_current_size, u8* tours_current,
-   i32* tours_next_size, u8* tours_next,
-   i64* histogram)
-  {   
-    i32* tour_next_size = 0;
-    u8* tour_next = 0;
+    u64  tour_current_total_size;
+    u32* tours_current_size;
+    u8*  tours_current;
 
-    int idx = threadIdx.x+blockDim.x*blockIdx.x;
-    RNG& rng = rngs[idx];
+    u64  tour_next_total_size;
+    u32* tours_next_size;
+    u8*  tours_next;
     
-    while(1) {
-      i32 ix = atomicAdd(&O->next_tour_current, 1);
-      if(ix >= I->num_tours_current) break;
+    __device__
+    void run() {
+      u32 idx = threadIdx.x+blockDim.x*blockIdx.x;
+
+      u8* tour_next = tours_next + idx * TREE_SIZE_PER_THREAD;
+      u32 tour_next_size = 0;
+
+      u64 block_size = (tour_current_total_size + NUM_THREADS - 1) / NUM_THREADS;
+      u64 fr_size = idx * block_size;
+      u64 to_size = min(tour_current_total_size, (idx + 1) * block_size) - 1;
+
+      if(fr_size > to_size) {
+        tours_next_size[idx] = 0;
+        return;
+      }
+
+      u64 cur_size = 0;
+      u32 itree = 0;
+
+      u32 local_low = max_score+1, local_high = 0;
+
+      while(cur_size + tours_current_size[itree] <= fr_size) {
+        cur_size += tours_current_size[itree];
+        itree += 1;
+      }
+
+      beam_state S = state;
+      f32 cutoff_running = 0.999;
+
+      u32 nstack_moves = 0;
+      u8 stack_moves[DEPTH_LIMIT];
+      u8 automaton_l[DEPTH_LIMIT+1];
+      u8 automaton_r[DEPTH_LIMIT+1];
+      automaton_l[0] = 12;
+      automaton_r[0] = 12;
       
-      beam_state S; S.reset(I->P, I->initial_state, I->initial_direction);
-      
-      i32 size = tours_current_size[ix];
-      u8* tour_current = tours_current + ix * TREE_SIZE;
-
-      i32 nstack_moves = 0;
-      u8 stack_moves[MAX_SOLUTION_SIZE];
-      // u32 stack_automaton[MAX_SOLUTION_SIZE];
-      // stack_automaton[0] = 6*6+6;
-
-      i32 ncommit = 0;
-    
-      FOR(iedge, size) {
-        auto const& edge = tour_current[iedge];
-        if(edge > 0) {
-          stack_moves[nstack_moves] = edge - 1;
-          S.do_move(I->P, stack_moves[nstack_moves]);
-          // stack_automaton[nstack_moves+1]
-          //   = automaton::next_state[stack_automaton[nstack_moves]][stack_moves[nstack_moves]];
-          nstack_moves += 1;
-        }else{
-          if(nstack_moves == I->istep) {
-            auto v = S.value(I->P);
-            if(v < I->cutoff ||
-               (v == I->cutoff && rng.randomFloat() < I->cutoff_keep_probability)) {
-              if(!tour_next) {
-                i32 ix2 = atomicAdd(&O->num_tours_next, 1);
-                tour_next_size = tours_next_size + ix2;
-                tour_next = tours_next + ix2 * TREE_SIZE;
-                *tour_next_size = 0;
+      u32 ncommit = 0;
+ 
+      for(; cur_size <= to_size; itree += 1) {
+        u8* tree = tours_current + itree * TREE_SIZE_PER_THREAD;
+        u32 size = tours_current_size[itree];
+        
+        FOR(iedge, size) {
+          u8 edge = tree[iedge];
+          if(edge > 0) {
+            S.do_move(puzzle, edge - 1);
+            if(edge <= 7) {
+              automaton_l[nstack_moves+1] = automaton_table[edge - 1];
+              automaton_r[nstack_moves+1] = automaton_r[nstack_moves];
+            }else{
+              automaton_l[nstack_moves+1] = automaton_l[nstack_moves];
+              automaton_r[nstack_moves+1] = automaton_table[edge - 1];
+            }
+            if(stack_moves[nstack_moves] == edge-1 && tour_next_size > 0){
+              ncommit += 1;
+              nstack_moves += 1;
+              tour_next_size -= 1;
+            }else{
+              stack_moves[nstack_moves] = edge - 1;
+              nstack_moves += 1;
+            }
+          }else{
+            if(nstack_moves == istep && fr_size <= cur_size && cur_size <= to_size) {
+              auto v = S.value(puzzle);
+              bool keep = v < cutoff;
+              if(v == cutoff) {
+                cutoff_running += cutoff_keep_probability;
+                if(cutoff_running >= 1.0) {
+                  cutoff_running -= 1.0;
+                  keep = 1;
+                }
               }
-              while(ncommit < nstack_moves) {
-                tour_next[(*tour_next_size)++] = 1+stack_moves[ncommit];
-                ncommit += 1;
-              }
+              if(keep) {
+                while(ncommit < nstack_moves) {
+                  tour_next[tour_next_size++] = 1+stack_moves[ncommit];
+                  ncommit += 1;
+                }
 
-              FOR(m, 12)
-                // if(automaton::allow_move[stack_automaton[istep]]&bit(m))
-                {
-                  auto [v,h] = S.plan_move(I->P, m);
-                  auto prev
+                FOR(m, 12) {
+                  // if(m != automaton_l[nstack_moves] &&
+                  //             m != automaton_r[nstack_moves]) {
+                  auto [v,h] = S.plan_move(puzzle, m);
+                  u64 h_prev
                     = atomicExch((unsigned long long int*)&hash_table[h&HASH_MASK],
                                  h);
-                  if(prev != h) {
-                    atomicMin((long long int*)&O->low, (long long int)v);
-                    atomicMax((long long int*)&O->high, (long long int)v);
+                  if(1) {
+                    local_low = min<u32>(local_low, v);
+                    local_high = max<u32>(local_high, v);
                     atomicAdd((unsigned long long int*)(histogram + v),
                               (unsigned long long int)1);
-                    tour_next[(*tour_next_size)++] = 1+m;
-                    tour_next[(*tour_next_size)++] = 0;
+                    tour_next[tour_next_size++] = 1+m;
+                    tour_next[tour_next_size++] = 0;
                   }
                 }
+              }
             }
+
+            if(ncommit == nstack_moves) {
+              tour_next[tour_next_size++] = 0;
+              ncommit -= 1;
+            }
+
+            nstack_moves -= 1;
+            S.undo_move(puzzle, stack_moves[nstack_moves]);
           }
 
-          if(nstack_moves == 0) {
-            break;
-          }
-
-          if(ncommit == nstack_moves) {
-            tour_next[(*tour_next_size)++] = 0;
-            ncommit -= 1;
-          }
-
-          nstack_moves -= 1;
-          S.undo_move(I->P, stack_moves[nstack_moves]);
-        }
-
-        if(tour_next_size != 0 && *tour_next_size + 2 * I->istep + 128 > TREE_SIZE) {
-          FORD(i,ncommit-1,0) tour_next[(*tour_next_size)++] = 0;
-          tour_next[(*tour_next_size)++] = 0;
-
-          atomicAdd((unsigned long long int*)&O->total_size,
-                    (unsigned long long int)(*tour_next_size));
-          tour_next_size = 0;
-          tour_next = 0;
-          ncommit = 0;
+          cur_size += 1;
         }
       }
-    }
-      
-    if(tour_next_size != 0) {
-      atomicAdd((unsigned long long int*)&O->total_size,
-                (unsigned long long int)(*tour_next_size));
-    }
-  }
 
+      tours_next_size[idx] = tour_next_size;
+
+      // if(tour_next_size > TREE_SIZE_PER_THREAD) {
+      //   printf("BAD\n");
+      // }
+      
+      atomicMin(&low, local_low);
+      atomicMax(&high, local_high);
+      atomicAdd((unsigned long long int*)&tour_next_total_size,
+                (unsigned long long int)tour_next_size);
+    }
+  };
+  
+  __global__
+  void traverse_euler_tour(traverse_euler_tour_t* T) {
+    T->run();
+  }
+  
   vector<u8> beam_search
-  (puzzle_data const& P,
+  (puzzle_data const& puzzle,
    puzzle_state const& initial_state,
    u8 initial_direction,
    i64 width)
   {
-    //     if(!HS) {
-    //       auto ptr = new uint64_t[HASH_SIZE];
-    //       HS = ptr;
-    //     }
-
-    beam_state S; S.reset(P, initial_state, initial_direction);
-    i32 max_score = S.total_distance + 1000; // TODO
+    beam_state state; state.reset(puzzle, initial_state, initial_direction);
+    i32 max_score = state.total_distance + 512;
     debug(max_score);
 
-    i32 num_trees = (1<<30) / TREE_SIZE;
+    traverse_euler_tour_t *traverse_data;
+    CUDA_CHECK(cudaMallocManaged(&traverse_data, sizeof(traverse_euler_tour_t)));
 
-    i32 num_tours_current = 1;
-    thrust::device_vector<u64> hash_table(HASH_SIZE);
-    thrust::device_vector<i32> tours_current_size(num_trees);
-    thrust::device_vector<u8>  tours_current(num_trees * TREE_SIZE);
-    thrust::device_vector<i32> tours_next_size(num_trees);
-    thrust::device_vector<u8>  tours_next(num_trees * TREE_SIZE);
-    tours_current_size[0] = 1;
-    tours_current[0] = 0;
+    thrust::device_vector<u64> hash_table(HASH_SIZE, 0);    
+    thrust::device_vector<u64> histogram(max_score, 0);
     
-    traverse_input* device_I;
-    gpuErrchk(cudaMallocManaged((void**)&device_I, sizeof(traverse_input)));
-    traverse_output* device_O;
-    gpuErrchk(cudaMallocManaged((void**)&device_O, sizeof(traverse_output)));
-
-    gpuErrchk(cudaDeviceSynchronize());
-
-    device_I->P = P;
-    device_I->initial_state = initial_state;
-    device_I->initial_direction = initial_direction;
+    thrust::device_vector<u32> tours_current_size(NUM_THREADS, 0);    
+    thrust::device_vector<u8>  tours_current(NUM_THREADS * TREE_SIZE_PER_THREAD);
+    thrust::device_vector<u32> tours_next_size(NUM_THREADS, 0);    
+    thrust::device_vector<u8>  tours_next(NUM_THREADS * TREE_SIZE_PER_THREAD);
 
     i32 cutoff = max_score;
     f32 cutoff_keep_probability = 1.0;
 
-    i32 num_blocks  = 2048;
-    i32 num_threads = 128;
+    u64 tour_current_total_size = 24;
+    tours_current_size[0] = 24;
+    FOR(m, 12) { tours_current[2*m] = 1+m; tours_current[2*m+1] = 0; }
 
-    thrust::device_vector<RNG> rngs(num_blocks * num_threads);
-    auto seed = time(0);
-    FOR(i, num_blocks * num_threads) {
-      RNG t; t.reset(seed + i);
-      rngs[i] = t;
-    }
+    CUDA_CHECK(cudaDeviceSynchronize());
     
-    for(i32 istep = 0; istep < 50; ++istep) {
+    for(i32 istep = 1; istep < DEPTH_LIMIT; ++istep) {
       timer timer_s;
 
-      thrust::device_vector<i64> histogram(max_score+1, 0);
+      traverse_data->puzzle = puzzle;
+      traverse_data->state = state;
 
-      device_I->num_tours_current = num_tours_current;
-      device_I->istep = istep;
-      device_I->cutoff = cutoff;
-      device_I->cutoff_keep_probability = cutoff_keep_probability;
-      device_O->total_size = 0;
-      device_O->next_tour_current = 0;
-      device_O->num_tours_next = 0;
-      device_O->low = max_score;
-      device_O->high = 0;
+      traverse_data->max_score = max_score;
+      traverse_data->hash_table
+        = thrust::raw_pointer_cast(hash_table.data());
+      traverse_data->histogram
+        = thrust::raw_pointer_cast(histogram.data());
+      traverse_data->low = max_score+1;
+      traverse_data->high = 0;
+    
+      traverse_data->istep = istep;
+      traverse_data->cutoff = cutoff;
+      traverse_data->cutoff_keep_probability = cutoff_keep_probability;
 
-      gpuErrchk(cudaDeviceSynchronize());
+      traverse_data->tour_current_total_size = tour_current_total_size;
+      traverse_data->tours_current_size
+        = thrust::raw_pointer_cast(tours_current_size.data());
+      traverse_data->tours_current
+        = thrust::raw_pointer_cast(tours_current.data());
+      traverse_data->tour_next_total_size = 0;
+      traverse_data->tours_next_size
+        = thrust::raw_pointer_cast(tours_next_size.data());
+      traverse_data->tours_next
+        = thrust::raw_pointer_cast(tours_next.data());
+    
+      traverse_euler_tour<<<NUM_BLOCKS, THREADS_PER_BLOCK>>>
+        (traverse_data);
       
-      traverse_euler_tour<<<num_blocks, num_threads>>>
-        (device_I, device_O,
-         thrust::raw_pointer_cast(rngs.data()),
-         thrust::raw_pointer_cast(hash_table.data()),
-         thrust::raw_pointer_cast(tours_current_size.data()),
-         thrust::raw_pointer_cast(tours_current.data()),
-         thrust::raw_pointer_cast(tours_next_size.data()),
-         thrust::raw_pointer_cast(tours_next.data()),
-         thrust::raw_pointer_cast(histogram.data())
-         );
-      gpuErrchk(cudaPeekAtLastError());
+      CUDA_CHECK(cudaPeekAtLastError());
+      CUDA_CHECK(cudaDeviceSynchronize());
 
-      gpuErrchk(cudaDeviceSynchronize());
+      u32 low = traverse_data->low;
+      u32 high = traverse_data->high;
+      u64 tour_next_total_size = traverse_data->tour_next_total_size;
 
-
-      thrust::host_vector<i64> hist(histogram);
+      vector<i32> L_histogram(high-low+1);
+      thrust::copy(begin(histogram) + low, begin(histogram) + high+1, begin(L_histogram));
+      CUDA_CHECK(cudaDeviceSynchronize());
+      thrust::fill(begin(histogram) + low, begin(histogram) + high+1, 0);
+      CUDA_CHECK(cudaDeviceSynchronize());
 
       { i64 total_count = 0;
         cutoff = max_score;
         cutoff_keep_probability = 1.0;
-        FORU(i, device_O->low, device_O->high) {
-          if(total_count+histogram[i] > width) {
+        FORU(i, low, high) {
+          if(total_count + L_histogram[i - low] > width) {
             cutoff = i;
-            cutoff_keep_probability = (float)(width-total_count) / (float)(hist[i]);
+            cutoff_keep_probability = (float)(width-total_count) / (float)(L_histogram[i-low]);
             break;
           }
-          total_count += histogram[i];
+          total_count += L_histogram[i-low];
         }
       }
+
+      // FOR(i, NUM_THREADS) {
+      //   if(tours_next_size[i] > 0) {
+      //     cerr << i << ": ";
+      //     FOR(j, tours_next_size[i]) {
+      //       cerr << (int)tours_next[i * TREE_SIZE_PER_THREAD + j] << ' ';
+      //     }
+      //     cerr << endl;
+      //   }
+      // }
       
       cerr << setw(6) << (istep+1) <<
-        ": scores = " << setw(3) << device_O->low << ".." << setw(3) << cutoff <<
-        ", tree size = " << setw(12) << device_O->total_size <<
-        ", num trees = " << setw(4) << device_O->num_tours_next <<
+        ": scores = " << setw(3) << low << ".." << setw(3) << cutoff <<
+        ", tree size = " << setw(12) << tour_next_total_size <<
         ", elapsed = " << setw(10) << timer_s.elapsed() << "s" <<
         endl;
 
+      if(low == 0) {
+        break; // TODO
+      }
+      
       swap(tours_current, tours_next);
       swap(tours_current_size, tours_next_size);
-      num_tours_current = device_O->num_tours_next;
+      tour_current_total_size = tour_next_total_size;
     }
 
     return {};
   }
-
 }

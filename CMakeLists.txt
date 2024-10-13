@@ -16,7 +16,7 @@ add_compile_options(-march=native)
 
 # set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 add_link_options("-fuse-ld=mold")
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -lineinfo --expt-relaxed-constexpr")
 
 IF(CMAKE_BUILD_TYPE MATCHES RelWithDebInfo)
   add_compile_options(-O3 -ffast-math)

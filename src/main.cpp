@@ -1,4 +1,5 @@
 #include "header.hpp"
+#include <iostream>
 #include <omp.h>
 #include "base.hpp"
 #include "beam_search_cpu.hpp"
@@ -14,12 +15,22 @@ void init_rng() {
   }
 }
 
-void solve(puzzle_data const& P,
+void solve(string type,
+           puzzle_data const& P,
            puzzle_state initial_state,
            u8 initial_directions,
            i64 width) {
-  auto solution = beam_search_gpu::beam_search
-    (P, initial_state, initial_directions, width);
+  vector<u8> solution;
+  if(type == "cpu") {
+    solution = beam_search_cpu::beam_search
+      (P, initial_state, initial_directions, width);
+  }else if(type == "gpu") {
+    solution = beam_search_gpu::beam_search
+      (P, initial_state, initial_directions, width);
+  }else{
+    cerr << "cpu|gpu" << endl;
+    exit(1);
+  }
 
   if(solution.empty()) return;
   
@@ -64,11 +75,12 @@ void solve(puzzle_data const& P,
 }
 
 int main(int argc, char** argv) {
-  runtime_assert(argc == 4);
+  runtime_assert(argc == 5);
 
-  i64 sz = atoi(argv[1]);
-  i64 width = atoll(argv[2]);
-  i32 initial_directions = atoi(argv[3]);
+  string type = argv[1];
+  i64 sz = atoi(argv[2]);
+  i64 width = atoll(argv[3]);
+  i32 initial_directions = atoi(argv[4]);
   debug(sz, width);
   
   init_rng();
@@ -79,7 +91,7 @@ int main(int argc, char** argv) {
   runtime_assert(C.count(sz));
   unique_ptr<puzzle_data> P = make_unique<puzzle_data>();
   P->make(sz);
-  solve(*P, C[sz], initial_directions, width);
+  solve(type, *P, C[sz], initial_directions, width);
 
   return 0;
 }
