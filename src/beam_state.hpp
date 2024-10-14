@@ -91,8 +91,8 @@ struct beam_state {
         c = P.data[a].data[(move+5)%6];
       }
 
-      auto xb = src_state.pos_to_tok[b];
-      auto xc = src_state.pos_to_tok[c];
+      u32 xb = src_state.pos_to_tok[b];
+      u32 xc = src_state.pos_to_tok[c];
       
       v -= P.dist[b][tgt_state.tok_to_pos[xb]];
       v -= P.dist[c][tgt_state.tok_to_pos[xc]];
@@ -137,8 +137,8 @@ struct beam_state {
         c = P.data[a].data[(move+5)%6];
       }
 
-      auto xb = tgt_state.pos_to_tok[b];
-      auto xc = tgt_state.pos_to_tok[c];
+      u32 xb = tgt_state.pos_to_tok[b];
+      u32 xc = tgt_state.pos_to_tok[c];
 
       v -= P.dist[src_state.tok_to_pos[xb]][b];
       v -= P.dist[src_state.tok_to_pos[xc]][c];
@@ -189,8 +189,8 @@ struct beam_state {
         c = P.data[a].data[(move+5)%6];
       }
 
-      auto xb = src_state.pos_to_tok[b];
-      auto xc = src_state.pos_to_tok[c];
+      u32 xb = src_state.pos_to_tok[b];
+      u32 xc = src_state.pos_to_tok[c];
 
       total_distance -= P.dist[b][tgt_state.tok_to_pos[xb]];
       total_distance -= P.dist[c][tgt_state.tok_to_pos[xc]];
@@ -229,8 +229,8 @@ struct beam_state {
         c = P.data[a].data[(move+5)%6];
       }
 
-      auto xb = tgt_state.pos_to_tok[b];
-      auto xc = tgt_state.pos_to_tok[c];
+      u32 xb = tgt_state.pos_to_tok[b];
+      u32 xc = tgt_state.pos_to_tok[c];
 
       total_distance -= P.dist[src_state.tok_to_pos[xb]][b];
       total_distance -= P.dist[src_state.tok_to_pos[xc]][c];

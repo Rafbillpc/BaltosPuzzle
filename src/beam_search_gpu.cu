@@ -20,14 +20,13 @@ namespace beam_search_gpu {
   const u64 HASH_SIZE = 1ull<<29;
   const u64 HASH_MASK = HASH_SIZE-1;
 
-  const u32 DEPTH_LIMIT = 64;
+  const u32 DEPTH_LIMIT = 32;
 
-  const u64 NUM_BLOCKS = 160; // could be more
+  const u64 NUM_BLOCKS = 4 * 80;
   const u64 THREADS_PER_BLOCK = 512;
 
   const u64 NUM_THREADS = NUM_BLOCKS * THREADS_PER_BLOCK;
-  const u64 TREE_SIZE_PER_THREAD = 1 << 15;
-  // could go as far as 1 << 20 and fit in memory?
+  const u64 TREE_SIZE_PER_THREAD = 1 << 13;
 
   __constant__ const u8 automaton_table[12] = {3,4,5,0,1,2,9,10,11,6,7,8};
   
@@ -52,8 +51,6 @@ namespace beam_search_gpu {
     u32* tours_next_size;
     u8*  tours_next;
 
-    u64  next_leaves;
-    
     __device__
     void run() {
       u32 idx = threadIdx.x+blockDim.x*blockIdx.x;
@@ -76,10 +73,9 @@ namespace beam_search_gpu {
 
       u64 cur_size = 0;
       u32 itree = 0;
+      u32 iedge = 0;
 
       u32 local_low = max_score, local_high = 0;
-
-      u32 leaves = 0;
 
       while(cur_size + tours_current_size[itree] <= fr_size) {
         cur_size += tours_current_size[itree];
@@ -98,12 +94,40 @@ namespace beam_search_gpu {
       
       u32 ncommit = 0;
       u8 committed[DEPTH_LIMIT];
- 
-      for(; cur_size <= to_size; itree += 1) {
+
+      while(cur_size < fr_size) {
         u8* tree = tours_current + itree * TREE_SIZE_PER_THREAD;
-        u32 size = tours_current_size[itree];
-        
-        FOR(iedge, size) {
+
+        u8 edge = tree[iedge];
+        if(edge > 0) {
+          S.do_move(puzzle, edge - 1);
+          if(edge <= 7) {
+            automaton_l[nstack_moves+1] = automaton_table[edge - 1];
+            automaton_r[nstack_moves+1] = automaton_r[nstack_moves];
+          }else{
+            automaton_l[nstack_moves+1] = automaton_l[nstack_moves];
+            automaton_r[nstack_moves+1] = automaton_table[edge - 1];
+          }
+          stack_moves[nstack_moves] = edge - 1;
+          nstack_moves += 1;
+        }else{
+          nstack_moves -= 1;
+          S.undo_move(puzzle, stack_moves[nstack_moves]);
+        }
+
+        cur_size += 1;
+        iedge += 1;
+        while(itree < NUM_THREADS && iedge == tours_current_size[itree]) {
+          itree += 1;
+          iedge = 0;
+        }
+      }
+
+      while(cur_size <= to_size) {
+
+        while(cur_size <= to_size) {
+          u8* tree = tours_current + itree * TREE_SIZE_PER_THREAD;
+
           u8 edge = tree[iedge];
           if(edge > 0) {
             S.do_move(puzzle, edge - 1);
@@ -127,46 +151,7 @@ namespace beam_search_gpu {
             }
           }else{
             if(nstack_moves == istep && fr_size <= cur_size && cur_size <= to_size) {
-
-              FOR(m, 12) if(m != automaton_l[nstack_moves] &&
-                            m != automaton_r[nstack_moves]) {
-                S.do_move(puzzle, m);
-                u32 v = S.value(puzzle);
-                bool keep = v < cutoff;
-                if(v == cutoff) {
-                  cutoff_running += cutoff_keep_probability;
-                  if(cutoff_running >= 1.0) {
-                    cutoff_running -= 1.0;
-                    keep = 1;
-                  }
-                }
-                if(keep) {
-                  leaves += 1;
-                  
-                  u64 h = S.get_hash(puzzle);
-                  u64 h_prev
-                    = atomicExch((unsigned long long int*)&hash_table[h&HASH_MASK],
-                                 h);
-                  if(h_prev != h) {
-                    while(ncommit < nstack_moves) {
-                      tour_next[tour_next_size++] = 1+stack_moves[ncommit];
-                      ncommit += 1;
-                    }
-                    
-                    tour_next[tour_next_size++] = 1+m;
-                    tour_next[tour_next_size++] = 0;
-
-                    FOR(m2, 12) {
-                      auto [v,h] = S.plan_move(puzzle, m2);
-                      local_low = min<u32>(local_low, v);
-                      local_high = max<u32>(local_high, v);
-                      atomicAdd((unsigned long long int*)(histogram + v),
-                                (unsigned long long int)1);
-                    }
-                  }
-                }
-                S.undo_move(puzzle, m);
-              }
+              break;
             }
 
             if(ncommit == nstack_moves) {
@@ -179,29 +164,178 @@ namespace beam_search_gpu {
           }
 
           cur_size += 1;
-          if(cur_size > to_size) {
-            while(ncommit) {
-              tour_next[tour_next_size++] = 0;
-              ncommit -= 1;
+          iedge += 1;
+          while(itree < NUM_THREADS && iedge == tours_current_size[itree]) {
+            itree += 1;
+            iedge = 0;
+          }
+        }
+        
+        {
+          if(cur_size > to_size) break;
+
+          FOR(m, 12) if(m != automaton_l[nstack_moves] &&
+                        m != automaton_r[nstack_moves]) {
+            S.do_move(puzzle, m);
+            u32 v = S.value(puzzle);
+            bool keep = v < cutoff;
+            if(v == cutoff) {
+              cutoff_running += cutoff_keep_probability;
+              if(cutoff_running >= 1.0) {
+                cutoff_running -= 1.0;
+                keep = 1;
+              }
             }
-            break;
+            if(keep) {
+              u64 h = S.get_hash(puzzle);
+              u64 h_prev
+                = atomicExch((unsigned long long int*)&hash_table[h&HASH_MASK],
+                             h);
+              if(h_prev != h) {
+                while(ncommit < nstack_moves) {
+                  tour_next[tour_next_size++] = 1+stack_moves[ncommit];
+                  ncommit += 1;
+                }
+                    
+                tour_next[tour_next_size++] = 1+m;
+                tour_next[tour_next_size++] = 0;
+
+                FOR(m2, 12) {
+                  auto [v,h] = S.plan_move(puzzle, m2);
+                  local_low = min<u32>(local_low, v);
+                  local_high = max<u32>(local_high, v);
+                  atomicAdd((unsigned long long int*)(histogram + v),
+                            (unsigned long long int)1);
+                }
+              }
+            }
+            S.undo_move(puzzle, m);
+          }
+          
+          if(ncommit == nstack_moves) {
+            tour_next[tour_next_size++] = 0;
+            ncommit -= 1;
+          }
+
+          nstack_moves -= 1;
+          S.undo_move(puzzle, stack_moves[nstack_moves]);
+
+          cur_size += 1;
+          iedge += 1;
+          while(itree < NUM_THREADS && iedge == tours_current_size[itree]) {
+            itree += 1;
+            iedge = 0;
           }
         }
       }
 
+      
+      
+      // for(; cur_size <= to_size; itree += 1) {
+      //   u8* tree = tours_current + itree * TREE_SIZE_PER_THREAD;
+      //   u32 size = tours_current_size[itree];
+        
+      //   FOR(iedge, size) {
+      //     u8 edge = tree[iedge];
+      //     if(edge > 0) {
+      //       S.do_move(puzzle, edge - 1);
+      //       if(edge <= 7) {
+      //         automaton_l[nstack_moves+1] = automaton_table[edge - 1];
+      //         automaton_r[nstack_moves+1] = automaton_r[nstack_moves];
+      //       }else{
+      //         automaton_l[nstack_moves+1] = automaton_l[nstack_moves];
+      //         automaton_r[nstack_moves+1] = automaton_table[edge - 1];
+      //       }
+      //       if(ncommit == nstack_moves &&
+      //          committed[nstack_moves] == edge - 1 &&
+      //          tour_next_size > 0) {
+      //         stack_moves[nstack_moves] = edge - 1;
+      //         ncommit += 1;
+      //         nstack_moves += 1;
+      //         tour_next_size -= 1;
+      //       }else{
+      //         stack_moves[nstack_moves] = edge - 1;
+      //         nstack_moves += 1;
+      //       }
+      //     }else{
+      //       if(nstack_moves == istep && fr_size <= cur_size && cur_size <= to_size) {
+              
+      //         FOR(m, 12) if(m != automaton_l[nstack_moves] &&
+      //                       m != automaton_r[nstack_moves]) {
+      //           S.do_move(puzzle, m);
+      //           u32 v = S.value(puzzle);
+      //           bool keep = v < cutoff;
+      //           if(v == cutoff) {
+      //             cutoff_running += cutoff_keep_probability;
+      //             if(cutoff_running >= 1.0) {
+      //               cutoff_running -= 1.0;
+      //               keep = 1;
+      //             }
+      //           }
+      //           if(keep) {
+      //             u64 h = S.get_hash(puzzle);
+      //             u64 h_prev
+      //               = atomicExch((unsigned long long int*)&hash_table[h&HASH_MASK],
+      //                            h);
+      //             if(h_prev != h) {
+      //               while(ncommit < nstack_moves) {
+      //                 tour_next[tour_next_size++] = 1+stack_moves[ncommit];
+      //                 ncommit += 1;
+      //               }
+                    
+      //               tour_next[tour_next_size++] = 1+m;
+      //               tour_next[tour_next_size++] = 0;
+
+      //               FOR(m2, 12) {
+      //                 auto [v,h] = S.plan_move(puzzle, m2);
+      //                 local_low = min<u32>(local_low, v);
+      //                 local_high = max<u32>(local_high, v);
+      //                 atomicAdd((unsigned long long int*)(histogram + v),
+      //                           (unsigned long long int)1);
+      //               }
+      //             }
+      //           }
+      //           S.undo_move(puzzle, m);
+      //         }
+      //       }
+
+      //       if(ncommit == nstack_moves) {
+      //         tour_next[tour_next_size++] = 0;
+      //         ncommit -= 1;
+      //       }
+
+      //       nstack_moves -= 1;
+      //       S.undo_move(puzzle, stack_moves[nstack_moves]);
+      //     }
+
+      //     cur_size += 1;
+      //     if(cur_size > to_size) {
+      //       while(ncommit) {
+      //         tour_next[tour_next_size++] = 0;
+      //         ncommit -= 1;
+      //       }
+      //       break;
+      //     }
+      //   }
+      // }
+
+      while(ncommit) {
+        tour_next[tour_next_size++] = 0;
+        ncommit -= 1;
+      }
+      
       tours_next_size[idx] = tour_next_size;
      
       atomicMin(&low, local_low);
       atomicMax(&high, local_high);
       atomicAdd((unsigned long long int*)&tour_next_total_size,
                 (unsigned long long int)tour_next_size);
-      atomicAdd((unsigned long long int*)&next_leaves,
-                (unsigned long long int)leaves);
     }
   };
-  
+    
   __global__
-  void traverse_euler_tour(traverse_euler_tour_t* T) {
+  __launch_bounds__(512, 2)
+    void traverse_euler_tour(traverse_euler_tour_t* T) {
     T->run();
   }
   
@@ -263,7 +397,6 @@ namespace beam_search_gpu {
         = thrust::raw_pointer_cast(tours_next_size.data());
       traverse_data->tours_next
         = thrust::raw_pointer_cast(tours_next.data());
-      traverse_data->next_leaves = 0;
     
       traverse_euler_tour<<<NUM_BLOCKS, THREADS_PER_BLOCK>>>
         (traverse_data);
@@ -298,7 +431,6 @@ namespace beam_search_gpu {
       cerr << setw(6) << (istep+1) <<
         ": scores = " << setw(3) << low << ".." << setw(3) << cutoff << ".." << setw(3) << high <<
         ", tree size = " << setw(12) << tour_next_total_size <<
-        ", tree leaves = " << setw(12) << traverse_data->next_leaves <<
         ", elapsed = " << setw(10) << timer_s.elapsed() << "s" <<
         endl;
 
