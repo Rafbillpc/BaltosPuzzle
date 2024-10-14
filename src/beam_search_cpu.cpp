@@ -129,11 +129,12 @@ namespace beam_search_cpu {
           
           bool keep = v < cutoff;
           if(v == cutoff) {
-            cutoff_running += cutoff_keep_probability;
-            if(cutoff_running >= 1.0) {
-              cutoff_running -= 1.0;
-              keep = 1;
-            }
+            keep = rng.randomFloat() < cutoff_keep_probability;
+            // cutoff_running += cutoff_keep_probability;
+            // if(cutoff_running >= 1.0) {
+            //   cutoff_running -= 1.0;
+            //   keep = 1;
+            // }
           }
 
           if(keep) {
