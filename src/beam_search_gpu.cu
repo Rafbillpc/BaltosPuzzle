@@ -277,7 +277,7 @@ namespace beam_search_gpu {
               = (float)(width-total_count) / (float)(L_histogram[i-low]);
             break;
           }
-          total_count += histogram[i-low];
+          total_count += L_histogram[i-low];
         }
       }
     
