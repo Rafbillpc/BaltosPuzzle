@@ -20,10 +20,10 @@ namespace beam_search_gpu {
   const u64 HASH_SIZE = 1ull<<29;
   const u64 HASH_MASK = HASH_SIZE-1;
 
-  const u32 DEPTH_LIMIT = 128;
+  const u32 DEPTH_LIMIT = 64;
 
-  const u64 NUM_BLOCKS = 80; // could be more
-  const u64 THREADS_PER_BLOCK = 1024;
+  const u64 NUM_BLOCKS = 160; // could be more
+  const u64 THREADS_PER_BLOCK = 512;
 
   const u64 NUM_THREADS = NUM_BLOCKS * THREADS_PER_BLOCK;
   const u64 TREE_SIZE_PER_THREAD = 1 << 15;
@@ -58,6 +58,10 @@ namespace beam_search_gpu {
     void run() {
       u32 idx = threadIdx.x+blockDim.x*blockIdx.x;
 
+      u32 cutoff = this->cutoff;
+      f32 cutoff_keep_probability = this->cutoff_keep_probability;
+      u32 istep = this->istep;
+      
       u8* tour_next = tours_next + idx * TREE_SIZE_PER_THREAD;
       u32 tour_next_size = 0;
 
@@ -123,42 +127,45 @@ namespace beam_search_gpu {
             }
           }else{
             if(nstack_moves == istep && fr_size <= cur_size && cur_size <= to_size) {
-              auto v = S.value(puzzle);
-              bool keep = v < cutoff;
-              if(v == cutoff) {
-                cutoff_running += cutoff_keep_probability;
-                if(cutoff_running >= 1.0) {
-                  cutoff_running -= 1.0;
-                  keep = 1;
-                }
-              }
-              if(keep) {
-                leaves += 1;
 
-                while(ncommit < nstack_moves) {
-                  committed[ncommit] = stack_moves[ncommit];
-                  tour_next[tour_next_size++] = 1+stack_moves[ncommit];
-                  ncommit += 1;
+              FOR(m, 12) if(m != automaton_l[nstack_moves] &&
+                            m != automaton_r[nstack_moves]) {
+                S.do_move(puzzle, m);
+                u32 v = S.value(puzzle);
+                bool keep = v < cutoff;
+                if(v == cutoff) {
+                  cutoff_running += cutoff_keep_probability;
+                  if(cutoff_running >= 1.0) {
+                    cutoff_running -= 1.0;
+                    keep = 1;
+                  }
                 }
-
-                FOR(m, 12) if(m != automaton_l[nstack_moves] &&
-                              m != automaton_r[nstack_moves]) {
-                  S.do_move(puzzle, m);
-                  i64 v = S.value(puzzle);
+                if(keep) {
+                  leaves += 1;
+                  
                   u64 h = S.get_hash(puzzle);
-                  S.undo_move(puzzle, m);
                   u64 h_prev
                     = atomicExch((unsigned long long int*)&hash_table[h&HASH_MASK],
                                  h);
-                  if(h != h_prev) {
-                    local_low = min<u32>(local_low, v);
-                    local_high = max<u32>(local_high, v);
-                    atomicAdd((unsigned long long int*)(histogram + v),
-                              (unsigned long long int)1);
+                  if(h_prev != h) {
+                    while(ncommit < nstack_moves) {
+                      tour_next[tour_next_size++] = 1+stack_moves[ncommit];
+                      ncommit += 1;
+                    }
+                    
                     tour_next[tour_next_size++] = 1+m;
                     tour_next[tour_next_size++] = 0;
+
+                    FOR(m2, 12) {
+                      auto [v,h] = S.plan_move(puzzle, m2);
+                      local_low = min<u32>(local_low, v);
+                      local_high = max<u32>(local_high, v);
+                      atomicAdd((unsigned long long int*)(histogram + v),
+                                (unsigned long long int)1);
+                    }
                   }
                 }
+                S.undo_move(puzzle, m);
               }
             }
 
@@ -172,6 +179,13 @@ namespace beam_search_gpu {
           }
 
           cur_size += 1;
+          if(cur_size > to_size) {
+            while(ncommit) {
+              tour_next[tour_next_size++] = 0;
+              ncommit -= 1;
+            }
+            break;
+          }
         }
       }
 
