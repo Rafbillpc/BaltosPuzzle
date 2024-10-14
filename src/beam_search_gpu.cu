@@ -101,7 +101,7 @@ namespace beam_search_gpu {
         u8 edge = tree[iedge];
         if(edge > 0) {
           S.do_move(puzzle, edge - 1);
-          if(edge <= 7) {
+          if(edge <= 6) {
             automaton_l[nstack_moves+1] = automaton_table[edge - 1];
             automaton_r[nstack_moves+1] = automaton_r[nstack_moves];
           }else{
@@ -131,7 +131,7 @@ namespace beam_search_gpu {
           u8 edge = tree[iedge];
           if(edge > 0) {
             S.do_move(puzzle, edge - 1);
-            if(edge <= 7) {
+            if(edge <= 6) {
               automaton_l[nstack_moves+1] = automaton_table[edge - 1];
               automaton_r[nstack_moves+1] = automaton_r[nstack_moves];
             }else{
@@ -176,6 +176,16 @@ namespace beam_search_gpu {
 
           FOR(m, 12) if(m != automaton_l[nstack_moves] &&
                         m != automaton_r[nstack_moves]) {
+
+            if(m < 6) {
+              automaton_l[nstack_moves+1] = automaton_table[m];
+              automaton_r[nstack_moves+1] = automaton_r[nstack_moves];
+            }else{
+              automaton_l[nstack_moves+1] = automaton_l[nstack_moves];
+              automaton_r[nstack_moves+1] = automaton_table[m];
+            }
+
+            
             S.do_move(puzzle, m);
             u32 v = S.value(puzzle);
             bool keep = v < cutoff;
@@ -200,7 +210,8 @@ namespace beam_search_gpu {
                 tour_next[tour_next_size++] = 1+m;
                 tour_next[tour_next_size++] = 0;
 
-                FOR(m2, 12) {
+                FOR(m2, 12) if(m2 != automaton_l[nstack_moves+1] &&
+                               m2 != automaton_r[nstack_moves+1]) {
                   auto [v,h] = S.plan_move(puzzle, m2);
                   local_low = min<u32>(local_low, v);
                   local_high = max<u32>(local_high, v);
