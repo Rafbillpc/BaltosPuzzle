@@ -49,14 +49,19 @@ struct beam_state {
   i64 value(puzzle_data const& P) const {
     return total_distance + (last_direction_src != last_direction_tgt);
     
-    // i64 v = 0;
-    // FORU(u, 1, P.size-1) {
-    //   v += P.dist[src_state.tok_to_pos[u]][tgt_state.tok_to_pos[u]];
-    // }
-    // FORU(u, 1, P.size-1) if(loop2_token(u)) v += 1;
+//     i64 v = 0;
+//     FORU(u, 1, P.size-1) {
+//       v += P.dist[src_state.tok_to_pos[u]][tgt_state.tok_to_pos[u]];
+//     }
+//     FORU(u, 1, P.size-1) if(loop2_token(u)) v += 1;
 
-    // runtime_assert(v == total_distance);
-    // return v;
+// #ifndef __CUDA_ARCH__
+//     if(v != total_distance) {
+//       debug(v, total_distance);
+//     }
+//     runtime_assert(v == total_distance);
+// #endif
+//     return v + (last_direction_src != last_direction_tgt);
   }
   
   CUDA_FN
@@ -76,7 +81,7 @@ struct beam_state {
     i64 v = total_distance; u64 h = hash;
     
     if(move < 6) {
-      i32 a = src_state.tok_to_pos[0], b, c;
+      u32 a = src_state.tok_to_pos[0], b, c;
     
       if(last_direction_src == 0) {
         b = P.data[a].data[move];
@@ -88,7 +93,7 @@ struct beam_state {
 
       auto xb = src_state.pos_to_tok[b];
       auto xc = src_state.pos_to_tok[c];
-
+      
       v -= P.dist[b][tgt_state.tok_to_pos[xb]];
       v -= P.dist[c][tgt_state.tok_to_pos[xc]];
       if(loop2_token(xb)) v -= 2;
@@ -99,13 +104,29 @@ struct beam_state {
 
       v += P.dist[c][tgt_state.tok_to_pos[xb]];
       v += P.dist[a][tgt_state.tok_to_pos[xc]];
-      if(loop2_token(xb)) v += 2;
-      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
-         loop2_token(xc)) v += 2;
+
+      { u32 pos2 = tgt_state.tok_to_pos[xb];
+        if(pos2 != c &&
+           pos2 != b &&
+           ((pos2 != a && src_state.pos_to_tok[pos2] == tgt_state.pos_to_tok[c]) ||
+            (pos2 == a && xc == tgt_state.pos_to_tok[c]))) {
+          v += 2;
+        }
+      }
+      if(tgt_state.tok_to_pos[xb] != a) {
+        u32 pos2 = tgt_state.tok_to_pos[xc];
+        if(pos2 != a &&
+           pos2 != b &&
+           ((pos2 != a && src_state.pos_to_tok[pos2] == tgt_state.pos_to_tok[a]) ||
+            (pos2 == a && xc == tgt_state.pos_to_tok[a]))) {
+          v += 2;
+        }
+      }
+
       h ^= hash_pos(c, tgt_state.tok_to_pos[xb]);
       h ^= hash_pos(a, tgt_state.tok_to_pos[xc]);
     }else{
-      i32 a = tgt_state.tok_to_pos[0], b, c;
+      u32 a = tgt_state.tok_to_pos[0], b, c;
       move -= 6;
       
       if(last_direction_tgt == 0) {
@@ -129,9 +150,25 @@ struct beam_state {
 
       v += P.dist[src_state.tok_to_pos[xb]][c];
       v += P.dist[src_state.tok_to_pos[xc]][a];
-      if(loop2_token(xb)) v += 2;
-      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
-         loop2_token(xc)) v += 2;
+
+      { u32 pos2 = src_state.tok_to_pos[xb];
+        if(pos2 != c &&
+           pos2 != b &&
+           ((pos2 != a && tgt_state.pos_to_tok[pos2] == src_state.pos_to_tok[c]) ||
+            (pos2 == a && xc == src_state.pos_to_tok[c]))) {
+          v += 2;
+        }
+      }
+      if(src_state.tok_to_pos[xb] != a) {
+        u32 pos2 = src_state.tok_to_pos[xc];
+        if(pos2 != a &&
+           pos2 != b &&
+           ((pos2 != a && tgt_state.pos_to_tok[pos2] == src_state.pos_to_tok[a]) ||
+            (pos2 == a && xc == src_state.pos_to_tok[a]))) {
+          v += 2;
+        }
+      }
+
       h ^= hash_pos(src_state.tok_to_pos[xb], c);
       h ^= hash_pos(src_state.tok_to_pos[xc], a);
     }
@@ -142,7 +179,7 @@ struct beam_state {
   CUDA_FN
   void do_move(puzzle_data const& P, u8 move) {
     if(move < 6) {
-      i32 a = src_state.tok_to_pos[0], b, c;
+      u32 a = src_state.tok_to_pos[0], b, c;
     
       if(last_direction_src == 0) {
         b = P.data[a].data[move];
@@ -181,7 +218,7 @@ struct beam_state {
       last_direction_src ^= 1;
 
     }else{
-      i32 a = tgt_state.tok_to_pos[0], b, c;
+      u32 a = tgt_state.tok_to_pos[0], b, c;
       move -= 6;
       
       if(last_direction_tgt == 0) {

@@ -87,7 +87,7 @@ namespace beam_search_cpu {
    i32 istep,
    euler_tour tour_current,
    vector<euler_tour> &tours_next,
-   i64* histogram, i64& low, i64& high,
+   i64* histogram, i64& low, i64& high, i64& leaves,
    i32 cutoff, float cutoff_keep_probability,
    i32& prefix_size, i32* prefix
    )
@@ -118,8 +118,8 @@ namespace beam_search_cpu {
           }
         }
         
+        S.do_move(P, edge-1);
         stack_moves[nstack_moves] = edge - 1;
-        S.do_move(P, stack_moves[nstack_moves]);
         stack_automaton[nstack_moves+1]
           = automaton::next_state[stack_automaton[nstack_moves]][stack_moves[nstack_moves]];
         nstack_moves += 1;
@@ -137,7 +137,8 @@ namespace beam_search_cpu {
           }
 
           if(keep) {
-            // if(v < cutoff || (v == cutoff && rng.randomFloat() < cutoff_keep_probability)) {
+            leaves += 1;
+            
             while(ncommit < nstack_moves) {
               tour_next->push(1+stack_moves[ncommit]);
               ncommit += 1;
@@ -145,6 +146,13 @@ namespace beam_search_cpu {
 
             FOR(m, 12) if(automaton::allow_move[stack_automaton[istep]]&bit(m)) {
               auto [v,h] = S.plan_move(P, m);
+              S.do_move(P, m);
+              if(S.value(P) != v) {
+                debug((int)m, (int)S.last_direction_src, (int)S.last_direction_tgt,
+                      S.value(P), v);
+              }
+              runtime_assert(S.value(P) == v);
+              S.undo_move(P, m);
               auto prev = HS[h&HASH_MASK];
               if(prev != h) {
                 HS[h&HASH_MASK] = h;
@@ -243,7 +251,7 @@ namespace beam_search_cpu {
 
       i32 prefix_size = istep+1;
       vector<i32> prefix(istep+1);
-      i64 low = max_score, high = 0;
+      i64 low = max_score, high = 0, leaves = 0;
       
 #pragma omp parallel
       {
@@ -252,7 +260,7 @@ namespace beam_search_cpu {
         vector<i32> L_prefix(istep+1, 0);
         i32 L_prefix_size = istep+1;
         
-        i64 L_low = max_score, L_high = 0;
+        i64 L_low = max_score, L_high = 0, L_leaves = 0;
       
         while(1) {
           euler_tour tour_current;
@@ -271,7 +279,7 @@ namespace beam_search_cpu {
              istep,
              tour_current, 
              L_tours_next, 
-             L_histogram.data(), L_low, L_high,
+             L_histogram.data(), L_low, L_high, L_leaves,
              cutoff, cutoff_keep_probability,
              L_prefix_size, L_prefix.data());
 
@@ -296,6 +304,7 @@ namespace beam_search_cpu {
           FORU(i,L_low,L_high) L_histogram[i] = 0;
           low = min(low, L_low);
           high = max(high, L_high);
+          leaves += L_leaves;
 
           merge_prefix
             (prefix_size, prefix.data(),
@@ -324,8 +333,9 @@ namespace beam_search_cpu {
         ": scores = " << setw(3) << low << ".." << setw(3) << cutoff <<
         ", tree size = " << setw(12) << total_size <<
         ", num trees = " << setw(4) << tours_next.size() <<
-        ", elapsed = " << setw(10) << timer_s.elapsed() << "s" <<
-        ", prefix size = " << prefix_size << 
+        ", num leaves = " << setw(4) << leaves <<
+        ", elapsed = " << setw(7) << timer_s.elapsed() << "s" <<
+        // ", prefix size = " << prefix_size << 
         endl;
 
       tours_current = tours_next;

@@ -17,7 +17,7 @@ inline void cuda_check(cudaError_t code, const char *file, int line){
 
 namespace beam_search_gpu {
   
-  const u64 HASH_SIZE = 1ull<<28;
+  const u64 HASH_SIZE = 1ull<<29;
   const u64 HASH_MASK = HASH_SIZE-1;
 
   const u32 DEPTH_LIMIT = 128;
@@ -51,6 +51,8 @@ namespace beam_search_gpu {
     u64  tour_next_total_size;
     u32* tours_next_size;
     u8*  tours_next;
+
+    u64  next_leaves;
     
     __device__
     void run() {
@@ -72,6 +74,8 @@ namespace beam_search_gpu {
       u32 itree = 0;
 
       u32 local_low = max_score+1, local_high = 0;
+
+      u32 leaves = 0;
 
       while(cur_size + tours_current_size[itree] <= fr_size) {
         cur_size += tours_current_size[itree];
@@ -105,7 +109,7 @@ namespace beam_search_gpu {
               automaton_l[nstack_moves+1] = automaton_l[nstack_moves];
               automaton_r[nstack_moves+1] = automaton_table[edge - 1];
             }
-            if(stack_moves[nstack_moves] == edge-1 && tour_next_size > 0){
+            if(stack_moves[nstack_moves] == edge - 1 && tour_next_size > 0){
               ncommit += 1;
               nstack_moves += 1;
               tour_next_size -= 1;
@@ -125,19 +129,20 @@ namespace beam_search_gpu {
                 }
               }
               if(keep) {
+                leaves += 1;
+
                 while(ncommit < nstack_moves) {
                   tour_next[tour_next_size++] = 1+stack_moves[ncommit];
                   ncommit += 1;
                 }
 
-                FOR(m, 12) {
-                  // if(m != automaton_l[nstack_moves] &&
-                  //             m != automaton_r[nstack_moves]) {
+                FOR(m, 12) if(m != automaton_l[nstack_moves] &&
+                              m != automaton_r[nstack_moves]) {
                   auto [v,h] = S.plan_move(puzzle, m);
                   u64 h_prev
                     = atomicExch((unsigned long long int*)&hash_table[h&HASH_MASK],
                                  h);
-                  if(1) {
+                  if(h != h_prev) {
                     local_low = min<u32>(local_low, v);
                     local_high = max<u32>(local_high, v);
                     atomicAdd((unsigned long long int*)(histogram + v),
@@ -163,15 +168,13 @@ namespace beam_search_gpu {
       }
 
       tours_next_size[idx] = tour_next_size;
-
-      // if(tour_next_size > TREE_SIZE_PER_THREAD) {
-      //   printf("BAD\n");
-      // }
-      
+     
       atomicMin(&low, local_low);
       atomicMax(&high, local_high);
       atomicAdd((unsigned long long int*)&tour_next_total_size,
                 (unsigned long long int)tour_next_size);
+      atomicAdd((unsigned long long int*)&next_leaves,
+                (unsigned long long int)leaves);
     }
   };
   
@@ -238,6 +241,7 @@ namespace beam_search_gpu {
         = thrust::raw_pointer_cast(tours_next_size.data());
       traverse_data->tours_next
         = thrust::raw_pointer_cast(tours_next.data());
+      traverse_data->next_leaves = 0;
     
       traverse_euler_tour<<<NUM_BLOCKS, THREADS_PER_BLOCK>>>
         (traverse_data);
@@ -261,7 +265,8 @@ namespace beam_search_gpu {
         FORU(i, low, high) {
           if(total_count + L_histogram[i - low] > width) {
             cutoff = i;
-            cutoff_keep_probability = (float)(width-total_count) / (float)(L_histogram[i-low]);
+            cutoff_keep_probability
+              = (float)(width-total_count) / (float)(L_histogram[i-low]);
             break;
           }
           total_count += L_histogram[i-low];
@@ -279,8 +284,9 @@ namespace beam_search_gpu {
       // }
       
       cerr << setw(6) << (istep+1) <<
-        ": scores = " << setw(3) << low << ".." << setw(3) << cutoff <<
+        ": scores = " << setw(3) << low << ".." << setw(3) << cutoff << ".." << setw(3) << high <<
         ", tree size = " << setw(12) << tour_next_total_size <<
+        ", tree leaves = " << setw(12) << traverse_data->next_leaves <<
         ", elapsed = " << setw(10) << timer_s.elapsed() << "s" <<
         endl;
 
