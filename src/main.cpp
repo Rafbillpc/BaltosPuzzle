@@ -3,7 +3,6 @@
 #include <omp.h>
 #include "base.hpp"
 #include "beam_search_cpu.hpp"
-#include "beam_search_gpu.hpp"
 
 void init_rng() {
   u64 seed = time(0);
@@ -24,11 +23,8 @@ void solve(string type,
   if(type == "cpu") {
     solution = beam_search_cpu::beam_search
       (P, initial_state, initial_directions, width);
-  }else if(type == "gpu") {
-    solution = beam_search_gpu::beam_search
-      (P, initial_state, initial_directions, width);
   }else{
-    cerr << "cpu|gpu" << endl;
+    cerr << "cpu" << endl;
     exit(1);
   }
 

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 message(STATUS "CMake version: ${CMAKE_VERSION}")
 project(balto
-  LANGUAGES CXX CUDA)
+  LANGUAGES CXX)
 
 # Options
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -16,7 +16,7 @@ add_compile_options(-march=native)
 
 # set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 add_link_options("-fuse-ld=mold")
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -lineinfo --expt-relaxed-constexpr")
+# set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -lineinfo --expt-relaxed-constexpr")
 
 IF(CMAKE_BUILD_TYPE MATCHES RelWithDebInfo)
   add_compile_options(-O3 -ffast-math)
@@ -57,7 +57,6 @@ add_executable(solver
   src/main.cpp
   src/base.cpp
   src/beam_search_cpu.cpp
-  src/beam_search_gpu.cu
 )
 target_link_libraries(solver PUBLIC common)
 target_precompile_headers(solver REUSE_FROM common)
