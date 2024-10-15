@@ -14,7 +14,7 @@ add_compile_options(
 )
 add_compile_options(-march=native)
 
-# set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 add_link_options("-fuse-ld=mold")
 # set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -lineinfo --expt-relaxed-constexpr")
 
@@ -55,8 +55,8 @@ target_precompile_headers(common PRIVATE src/header.hpp)
 # Solver
 add_executable(solver
   src/main.cpp
-  src/base.cpp
-  src/beam_search_cpu.cpp
+  # src/base.cpp
+  # src/beam_search_cpu.cpp
 )
 target_link_libraries(solver PUBLIC common)
 target_precompile_headers(solver REUSE_FROM common)
