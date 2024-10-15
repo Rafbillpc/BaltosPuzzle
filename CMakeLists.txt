@@ -55,8 +55,7 @@ target_precompile_headers(common PRIVATE src/header.hpp)
 # Solver
 add_executable(solver
   src/main.cpp
-  # src/base.cpp
-  # src/beam_search_cpu.cpp
+  src/beam_search.cpp
 )
 target_link_libraries(solver PUBLIC common)
 target_precompile_headers(solver REUSE_FROM common)

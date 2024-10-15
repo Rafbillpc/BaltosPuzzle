@@ -1,6 +1,7 @@
 #include "header.hpp"
 #include "puzzle.hpp"
 #include "beam_search.hpp"
+#include <omp.h>
 
 void init_rng() {
   u64 seed = time(0);
