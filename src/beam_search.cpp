@@ -83,7 +83,7 @@ void traverse_euler_tour
  u32 istep,
  euler_tour tour_current,
  vector<euler_tour> &tours_next,
- u64* histogram, u32& low, u32& high,
+ u64* histogram, u32& out_low, u32& out_high,
  u32 cutoff, f32 cutoff_keep_probability)
 {
   beam_state S; S.reset(P, initial_state, initial_direction);
@@ -100,14 +100,16 @@ void traverse_euler_tour
   runtime_assert(tour_next->max_size == tree_size);
 
   f32 cutoff_running = 1.0;
+
+  u32 low = out_low, high = out_high;
   
   FOR(iedge, tour_current.size) {
     u8 edge = tour_current[iedge];
     if(edge > 0) {
-      stack_moves[nstack_moves] = edge - 1;
-      S.do_move(P, stack_moves[nstack_moves]);
+      stack_moves[nstack_moves] = edge-1;
+      S.do_move(P, edge-1);
       stack_automaton[nstack_moves+1]
-        = automaton::next_state[stack_automaton[nstack_moves]][stack_moves[nstack_moves]];
+        = automaton::next_state[stack_automaton[nstack_moves]][edge-1];
       nstack_moves += 1;
     }else{
       if(nstack_moves == istep) {
@@ -142,7 +144,7 @@ void traverse_euler_tour
       }
 
       if(nstack_moves == 0) {
-        return;
+        break;
       }
 
       if(ncommit == nstack_moves) {
@@ -161,10 +163,10 @@ void traverse_euler_tour
       tour_next = &tours_next.back();
       ncommit = 0;
     }
-
   }
 
-  runtime_assert(false);
+  out_low = low;
+  out_high = high;
 }
 
 vector<u8> beam_search
@@ -179,7 +181,7 @@ vector<u8> beam_search
   }
 
   beam_state S; S.reset(P, initial_state, initial_direction);
-  i32 max_score = S.total_distance + 1000; // TODO
+  i32 max_score = S.total_distance + 512;
   debug(max_score);
   vector<u64> histogram(max_score+1, 0);
   
