@@ -42,11 +42,13 @@ using f64 = double;
 #define AS_STRING(x) AS_STRING_IMPL(x)
 #define runtime_assert(x) do {                                          \
     if(!(x)) {                                                          \
-      throw runtime_error(__FILE__ ":" AS_STRING(__LINE__) " Assertion failed: " #x); \
+      throw runtime_error((std::filesystem::path(__FILE__).filename().string()) + \
+                          ":" AS_STRING(__LINE__) " Assertion failed: " #x); \
     }                                                                   \
   } while(0)
 #define impossible() do {                                               \
-    throw runtime_error(__FILE__ ":" AS_STRING(__LINE__) " impossible"); \
+    throw runtime_error((std::filesystem::path(__FILE__).filename().string()) + \
+                        ":" AS_STRING(__LINE__) " impossible");         \
   } while(0)
 #define all(x) begin(x), end(x)
 #define mp make_pair
@@ -300,7 +302,8 @@ void debug_impl_seq(T const& t, V const&... v) {
 }
 
 #define debug(x...) do {                                                \
-    cerr << __FILE__ ":" AS_STRING(__LINE__) "  {" << #x << "} = {"; \
+    cerr << (std::filesystem::path(__FILE__).filename().string()) +     \
+      ":" AS_STRING(__LINE__) "  {" << #x << "} = {";                   \
     debug_impl_seq(x);                                                  \
     cerr << endl << flush;                                              \
   } while(0)

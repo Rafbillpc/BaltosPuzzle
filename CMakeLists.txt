@@ -52,6 +52,14 @@ target_link_libraries(common PUBLIC
 )
 target_precompile_headers(common PRIVATE src/header.hpp)
 
+# Find perms
+add_executable(find_perms
+  src/find_perms.cpp
+  src/beam_search.cpp
+)
+target_link_libraries(find_perms PUBLIC common)
+target_precompile_headers(find_perms REUSE_FROM common)
+
 # Solver
 add_executable(solver
   src/main.cpp
