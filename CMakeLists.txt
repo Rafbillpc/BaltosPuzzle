@@ -67,3 +67,18 @@ add_executable(solver
 )
 target_link_libraries(solver PUBLIC common)
 target_precompile_headers(solver REUSE_FROM common)
+
+# Visu
+add_executable(visu
+  src/visu.cpp
+)
+target_link_libraries(visu PUBLIC common)
+target_precompile_headers(visu REUSE_FROM common)
+
+# Greedy
+add_executable(greedy
+  src/greedy.cpp
+)
+target_link_libraries(greedy PUBLIC common)
+target_precompile_headers(greedy REUSE_FROM common)
+

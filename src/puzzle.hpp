@@ -1,6 +1,8 @@
 #pragma once
 #include "header.hpp"
 
+const i32 du[6] = {-1,0,1,1,0,-1};
+const i32 dv[6] = {0,1,1,0,-1,-1};
 
 const u32 MAX_SIZE = 2107;
 const u32 MAX_SOLUTION_SIZE = 50'000;
@@ -16,46 +18,56 @@ struct puzzle_data {
 
   puzzle_rot data[MAX_SIZE];
   i32 dist[MAX_SIZE][MAX_SIZE];
+  array<i32,2> dist_delta[MAX_SIZE][MAX_SIZE];
 
+  array<i32, 2> to_coord[MAX_SIZE];
+  map<array<i32, 2>, u32> from_coord;
+
+  i32 tgt_tok_to_pos[MAX_SIZE];
+  i32 tgt_pos_to_tok[MAX_SIZE];
+  i32 rot_weight[MAX_SIZE];
+  
   void make(i32 n_) {
     n = n_;
-    map<array<i32, 2>, u32> M;
     size = 0;
+    from_coord.clear();
     
     FOR(u, 2*n-1) {
       u32 ncol = 2*n-1 - abs(u-(n-1));
       FOR(icol, ncol) {
         i32 v = icol + max(0, u - (n-1));
 
-        M[{u,v}] = size;
+        to_coord[size] = {u,v};
+        from_coord[{u,v}] = size;
 
-        M[{u + 2*n-1, v + n-1}] = size;
-        M[{u + n-1, v - n}] = size;
-        M[{u - n, v - (2*n-1)}] = size;
-        M[{u - (2*n-1), v - (n-1)}] = size;
-        M[{u - (n-1), v + n}] = size;
-        M[{u + n, v + (2*n-1)}] = size;
+        from_coord[{u + 2*n-1, v + n-1}] = size;
+        from_coord[{u + n-1, v - n}] = size;
+        from_coord[{u - n, v - (2*n-1)}] = size;
+        from_coord[{u - (2*n-1), v - (n-1)}] = size;
+        from_coord[{u - (n-1), v + n}] = size;
+        from_coord[{u + n, v + (2*n-1)}] = size;
 
         size += 1;
       }
     }
 
-    center = M[{n-1,n-1}];
+    center = from_coord[{n-1,n-1}];
     
     FOR(u, 2*n-1) {
       u32 ncol = 2*n-1 - abs(u-(n-1));
       FOR(icol, ncol) {
         i32 v = icol + max(0, u - (n-1));
 
-        u32 ix = M[{u,v}];
-        u32 at[6] =
-          { M[{u-1,v}],
-            M[{u,v+1}],
-            M[{u+1,v+1}],
-            M[{u+1,v}],
-            M[{u,v-1}],
-            M[{u-1,v-1}],
-          };
+        u32 ix = from_coord[{u,v}];
+        u32 at[6];
+        FOR(d,6) at[d] = from_coord[{u+du[d],v+dv[d]}];
+          // { from_coord[{u-1,v}],
+          //   from_coord[{u,v+1}],
+          //   from_coord[{u+1,v+1}],
+          //   from_coord[{u+1,v}],
+          //   from_coord[{u,v-1}],
+          //   from_coord[{u-1,v-1}],
+          // };
         FOR(j, 6) data[ix].data[j] = at[j];
       }
     }
@@ -68,11 +80,41 @@ struct puzzle_data {
           FOR(y, 6) {
             i32 w = v;
             FORU(dy, 0, 2*n) {
-              dist[u][w] = min(dist[u][w], dx*dx+dy*dy);
+
+              i32 delta_u = 0, delta_v = 0;
+              delta_u += dx * du[x] + dy * du[y];
+              delta_v += dx * dv[x] + dy * dv[y];
+
+              i32 di = dx+dy;
+
+              if(di < dist[u][w]) {
+                dist[u][w] = di;
+                dist_delta[u][w] = {delta_u,delta_v};
+              }
+              
               w = data[w].data[y];
             }
           }
           v = data[v].data[x];
+        }
+      }
+    }
+    
+    FOR(i, size) {
+      tgt_pos_to_tok[i] = (i == (i32)center ? 0 : (i < (i32)center ? 1+i : i));
+    }
+    FOR(i, size) {
+      tgt_tok_to_pos[tgt_pos_to_tok[i]] = i;
+    }
+
+    
+    rot_weight[0] = 0;
+    FOR(layer, n-1) {
+      i32 u = layer, v = layer;
+      FOR(d, 6) {
+        FOR(k, n-1-layer) {
+          rot_weight[tgt_pos_to_tok[from_coord.at({u,v})]] = (n-layer);
+          u += du[d], v += dv[d];
         }
       }
     }
@@ -119,14 +161,39 @@ struct puzzle_state {
     i32 ix = 0;
     FOR(u, 2*P.n-1) {
       u32 ncol = 2*P.n-1 - abs(u-(P.n-1));
+      FOR(i, abs(u-(P.n-1))) cerr << "   ";
       FOR(icol, ncol) {
-        cerr << pos_to_tok[ix] << ' ';
+        cerr << setw(3) << pos_to_tok[ix] << "   ";
         ix += 1;
       }
       cerr << endl;
     }
-
   }
+
+   
+  CUDA_FN
+  void do_move(puzzle_data const& P, u8 move, u8 dir) {
+    u32 a = tok_to_pos[0], b, c;
+    
+    if(dir == 0) {
+      b = P.data[a].data[move];
+      c = P.data[a].data[(move+1)%6];
+    }else{
+      b = P.data[a].data[move];
+      c = P.data[a].data[(move+5)%6];
+    }
+
+    u32 xb = pos_to_tok[b];
+    u32 xc = pos_to_tok[c];
+
+    pos_to_tok[a]  = xc;
+    pos_to_tok[b]  = 0;
+    pos_to_tok[c]  = xb;
+    tok_to_pos[0]  = b;
+    tok_to_pos[xb] = c;
+    tok_to_pos[xc] = a;
+  }
+
 };
 
 static inline

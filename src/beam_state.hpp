@@ -15,6 +15,12 @@ struct beam_state {
 
   u32 total_distance;
   u64 hash;
+  u32 reachability_cost;
+
+  i32 delta_u, delta_v;
+
+  i32 D[2*MAX_SIZE];
+  i32 Q[2*MAX_SIZE];
 
   CUDA_FN
   void reset(puzzle_data const& P,
@@ -26,42 +32,97 @@ struct beam_state {
     last_direction_tgt = (initial_direction >> 1) & 1;
 
     total_distance = 0;
+    delta_u = delta_v = 0;
     FORU(u, 1, P.size-1) {
-      total_distance += P.dist[src_state.tok_to_pos[u]][tgt_state.tok_to_pos[u]];
+      total_distance
+        += get_dist(P, src_state.tok_to_pos[u], tgt_state.tok_to_pos[u]);
     }
-    FORU(u, 1, P.size-1) if(loop2_token(u)) total_distance += 1;
+    reachability_cost = reachability(P);
 
     hash = get_hash0(P);
   }
 
-  CUDA_FN
-  bool loop2_token(u32 u) const {
-    u32 pos1 = src_state.tok_to_pos[u], pos2 = tgt_state.tok_to_pos[u];
-    if(pos1 != pos2 &&
-       src_state.pos_to_tok[pos2] != 0 &&
-       src_state.pos_to_tok[pos2] == tgt_state.pos_to_tok[pos1]) {
-      return 1;
-    }
-    return 0;
+  u32 reachability(puzzle_data const& P) {
+    return max(reachability_src(P), reachability_tgt(P));
   }
   
-  CUDA_FN
-  u32 value(puzzle_data const& P) const {
-    return total_distance + (last_direction_src != last_direction_tgt);
+  u32 reachability_src(puzzle_data const& P) {
+    u32 ret = 0;
     
-//     i64 v = 0;
-//     FORU(u, 1, P.size-1) {
-//       v += P.dist[src_state.tok_to_pos[u]][tgt_state.tok_to_pos[u]];
-//     }
-//     FORU(u, 1, P.size-1) if(loop2_token(u)) v += 1;
+    FOR(i, P.size) D[i] = P.size;
+    i32 qi = MAX_SIZE, qj = MAX_SIZE;
+    Q[qj++] = src_state.tok_to_pos[0]; D[src_state.tok_to_pos[0]] = 0;
+    while(qi < qj) {
+      i32 u = Q[qi++];
+      FOR(d, 6) {
+        i32 v = P.data[u].data[d];
+        i32 cost = D[u] + (src_state.pos_to_tok[v] == tgt_state.pos_to_tok[v]);
+        if(D[v] > cost) {
+          D[v] = cost;
+          if(cost == D[u]) {
+            ret = cost;
+            Q[--qi] = v;
+          }else{
+            Q[qj++] = v;
+          }
+        }
+      }
+    }
 
-// #ifndef __CUDA_ARCH__
-//     if(v != total_distance) {
-//       debug(v, total_distance);
-//     }
-//     runtime_assert(v == total_distance);
-// #endif
-//     return v + (last_direction_src != last_direction_tgt);
+    return ret;
+  }
+  
+  u32 reachability_tgt(puzzle_data const& P) {
+    u32 ret = 0;
+    
+    FOR(i, P.size) D[i] = P.size;
+    i32 qi = MAX_SIZE, qj = MAX_SIZE;
+    Q[qj++] = tgt_state.tok_to_pos[0]; D[tgt_state.tok_to_pos[0]] = 0;
+    while(qi < qj) {
+      i32 u = Q[qi++];
+      FOR(d, 6) {
+        i32 v = P.data[u].data[d];
+        i32 cost = D[u] + (src_state.pos_to_tok[v] == tgt_state.pos_to_tok[v]);
+        if(D[v] > cost) {
+          D[v] = cost;
+          if(cost == D[u]) {
+            ret = cost;
+            Q[--qi] = v;
+          }else{
+            Q[qj++] = v;
+          }
+        }
+      }
+    }
+
+    return ret;
+
+  } 
+  
+  CUDA_FN
+  u32 value(puzzle_data const& P) {
+    return
+      10 * total_distance
+      + 21 * reachability_cost
+      + (last_direction_src != last_direction_tgt);
+    
+    u32 vd = 0;
+    FORU(u, 1, P.size-1) {
+      vd += P.dist[src_state.tok_to_pos[u]][tgt_state.tok_to_pos[u]];
+    }
+
+    if(vd != total_distance) {
+      debug(vd, total_distance);
+    }
+    runtime_assert(vd == total_distance);
+
+    u32 vr = reachability(P);
+    if(vr != reachability_cost) {
+      debug(vr, reachability_cost);
+    }
+    runtime_assert(vr == reachability_cost);
+    
+    return vd + vr + (last_direction_src != last_direction_tgt);
   }
   
   CUDA_FN
@@ -76,194 +137,20 @@ struct beam_state {
     return hash;
   }
 
- 
-  CUDA_FN
-  u32 plan_move_value(puzzle_data const& P, u8 move) const {
-    u32 v = total_distance; 
-    
-    if(move < 6) {
-      u32 a = src_state.tok_to_pos[0], b, c;
-    
-      if(last_direction_src == 0) {
-        b = P.data[a].data[move];
-        c = P.data[a].data[(move+1)%6];
-      }else{
-        b = P.data[a].data[move];
-        c = P.data[a].data[(move+5)%6];
-      }
-
-      u32 xb = src_state.pos_to_tok[b];
-      u32 xc = src_state.pos_to_tok[c];
-      
-      v -= P.dist[b][tgt_state.tok_to_pos[xb]];
-      v -= P.dist[c][tgt_state.tok_to_pos[xc]];
-      if(loop2_token(xb)) v -= 2;
-      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
-         loop2_token(xc)) v -= 2;
-
-      v += P.dist[c][tgt_state.tok_to_pos[xb]];
-      v += P.dist[a][tgt_state.tok_to_pos[xc]];
-
-      { u32 pos2 = tgt_state.tok_to_pos[xb];
-        if(pos2 != c &&
-           pos2 != b &&
-           ((pos2 != a && src_state.pos_to_tok[pos2] == tgt_state.pos_to_tok[c]) ||
-            (pos2 == a && xc == tgt_state.pos_to_tok[c]))) {
-          v += 2;
-        }
-      }
-      if(tgt_state.tok_to_pos[xb] != a) {
-        u32 pos2 = tgt_state.tok_to_pos[xc];
-        if(pos2 != a &&
-           pos2 != b &&
-           ((pos2 != a && src_state.pos_to_tok[pos2] == tgt_state.pos_to_tok[a]) ||
-            (pos2 == a && xc == tgt_state.pos_to_tok[a]))) {
-          v += 2;
-        }
-      }
-    }else{
-      u32 a = tgt_state.tok_to_pos[0], b, c;
-      move -= 6;
-      
-      if(last_direction_tgt == 0) {
-        b = P.data[a].data[move];
-        c = P.data[a].data[(move+1)%6];
-      }else{
-        b = P.data[a].data[move];
-        c = P.data[a].data[(move+5)%6];
-      }
-
-      u32 xb = tgt_state.pos_to_tok[b];
-      u32 xc = tgt_state.pos_to_tok[c];
-
-      v -= P.dist[src_state.tok_to_pos[xb]][b];
-      v -= P.dist[src_state.tok_to_pos[xc]][c];
-      if(loop2_token(xb)) v -= 2;
-      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
-         loop2_token(xc)) v -= 2;
-      v += P.dist[src_state.tok_to_pos[xb]][c];
-      v += P.dist[src_state.tok_to_pos[xc]][a];
-
-      { u32 pos2 = src_state.tok_to_pos[xb];
-        if(pos2 != c &&
-           pos2 != b &&
-           ((pos2 != a && tgt_state.pos_to_tok[pos2] == src_state.pos_to_tok[c]) ||
-            (pos2 == a && xc == src_state.pos_to_tok[c]))) {
-          v += 2;
-        }
-      }
-      if(src_state.tok_to_pos[xb] != a) {
-        u32 pos2 = src_state.tok_to_pos[xc];
-        if(pos2 != a &&
-           pos2 != b &&
-           ((pos2 != a && tgt_state.pos_to_tok[pos2] == src_state.pos_to_tok[a]) ||
-            (pos2 == a && xc == src_state.pos_to_tok[a]))) {
-          v += 2;
-        }
-      }
-    }
-
-    return v + (last_direction_src == last_direction_tgt);
+  FORCE_INLINE
+  i32 get_dist(puzzle_data const& P, i32 x, i32 y) const {
+    i32 v = 0;
+    v += P.dist[x][y];
+    return v;
   }
   
   CUDA_FN
-  tuple<u32, u64> plan_move(puzzle_data const& P, u8 move) const {
-    u32 v = total_distance; u64 h = hash;
-    
-    if(move < 6) {
-      u32 a = src_state.tok_to_pos[0], b, c;
-    
-      if(last_direction_src == 0) {
-        b = P.data[a].data[move];
-        c = P.data[a].data[(move+1)%6];
-      }else{
-        b = P.data[a].data[move];
-        c = P.data[a].data[(move+5)%6];
-      }
-
-      u32 xb = src_state.pos_to_tok[b];
-      u32 xc = src_state.pos_to_tok[c];
-      
-      v -= P.dist[b][tgt_state.tok_to_pos[xb]];
-      v -= P.dist[c][tgt_state.tok_to_pos[xc]];
-      if(loop2_token(xb)) v -= 2;
-      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
-         loop2_token(xc)) v -= 2;
-      h ^= hash_pos(b, tgt_state.tok_to_pos[xb]);
-      h ^= hash_pos(c, tgt_state.tok_to_pos[xc]);
-
-      v += P.dist[c][tgt_state.tok_to_pos[xb]];
-      v += P.dist[a][tgt_state.tok_to_pos[xc]];
-
-      { u32 pos2 = tgt_state.tok_to_pos[xb];
-        if(pos2 != c &&
-           pos2 != b &&
-           ((pos2 != a && src_state.pos_to_tok[pos2] == tgt_state.pos_to_tok[c]) ||
-            (pos2 == a && xc == tgt_state.pos_to_tok[c]))) {
-          v += 2;
-        }
-      }
-      if(tgt_state.tok_to_pos[xb] != a) {
-        u32 pos2 = tgt_state.tok_to_pos[xc];
-        if(pos2 != a &&
-           pos2 != b &&
-           ((pos2 != a && src_state.pos_to_tok[pos2] == tgt_state.pos_to_tok[a]) ||
-            (pos2 == a && xc == tgt_state.pos_to_tok[a]))) {
-          v += 2;
-        }
-      }
-
-      h ^= hash_pos(c, tgt_state.tok_to_pos[xb]);
-      h ^= hash_pos(a, tgt_state.tok_to_pos[xc]);
-    }else{
-      u32 a = tgt_state.tok_to_pos[0], b, c;
-      move -= 6;
-      
-      if(last_direction_tgt == 0) {
-        b = P.data[a].data[move];
-        c = P.data[a].data[(move+1)%6];
-      }else{
-        b = P.data[a].data[move];
-        c = P.data[a].data[(move+5)%6];
-      }
-
-      u32 xb = tgt_state.pos_to_tok[b];
-      u32 xc = tgt_state.pos_to_tok[c];
-
-      v -= P.dist[src_state.tok_to_pos[xb]][b];
-      v -= P.dist[src_state.tok_to_pos[xc]][c];
-      if(loop2_token(xb)) v -= 2;
-      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
-         loop2_token(xc)) v -= 2;
-      h ^= hash_pos(src_state.tok_to_pos[xb], b);
-      h ^= hash_pos(src_state.tok_to_pos[xc], c);
-
-      v += P.dist[src_state.tok_to_pos[xb]][c];
-      v += P.dist[src_state.tok_to_pos[xc]][a];
-
-      { u32 pos2 = src_state.tok_to_pos[xb];
-        if(pos2 != c &&
-           pos2 != b &&
-           ((pos2 != a && tgt_state.pos_to_tok[pos2] == src_state.pos_to_tok[c]) ||
-            (pos2 == a && xc == src_state.pos_to_tok[c]))) {
-          v += 2;
-        }
-      }
-      if(src_state.tok_to_pos[xb] != a) {
-        u32 pos2 = src_state.tok_to_pos[xc];
-        if(pos2 != a &&
-           pos2 != b &&
-           ((pos2 != a && tgt_state.pos_to_tok[pos2] == src_state.pos_to_tok[a]) ||
-            (pos2 == a && xc == src_state.pos_to_tok[a]))) {
-          v += 2;
-        }
-      }
-
-      h ^= hash_pos(src_state.tok_to_pos[xb], c);
-      h ^= hash_pos(src_state.tok_to_pos[xc], a);
-    }
-
-    return mt(v + (last_direction_src == last_direction_tgt), h);
+  tuple<u32, u64> plan_move(puzzle_data const& P, u8 move) {
+    do_move(P, move);
+    u32 v = value(P);
+    u64 h = get_hash(P);
+    undo_move(P, move);
+    return {v,h};
   }
     
   CUDA_FN
@@ -282,11 +169,14 @@ struct beam_state {
       u32 xb = src_state.pos_to_tok[b];
       u32 xc = src_state.pos_to_tok[c];
 
-      total_distance -= P.dist[b][tgt_state.tok_to_pos[xb]];
-      total_distance -= P.dist[c][tgt_state.tok_to_pos[xc]];
-      if(loop2_token(xb)) total_distance -= 2;
-      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
-         loop2_token(xc)) total_distance -= 2;
+      bool redo_reach =
+        (b == tgt_state.tok_to_pos[xb]) ||
+        (c == tgt_state.tok_to_pos[xc]) ||
+        (c == tgt_state.tok_to_pos[xb]) ||
+        (a == tgt_state.tok_to_pos[xc]);
+      
+      total_distance -= get_dist(P, b, tgt_state.tok_to_pos[xb]);
+      total_distance -= get_dist(P, c, tgt_state.tok_to_pos[xc]);
       hash ^= hash_pos(b, tgt_state.tok_to_pos[xb]);
       hash ^= hash_pos(c, tgt_state.tok_to_pos[xc]);
 
@@ -297,14 +187,13 @@ struct beam_state {
       src_state.tok_to_pos[xb] = c;
       src_state.tok_to_pos[xc] = a;
 
-      total_distance += P.dist[c][tgt_state.tok_to_pos[xb]];
-      total_distance += P.dist[a][tgt_state.tok_to_pos[xc]];
+      total_distance += get_dist(P, c, tgt_state.tok_to_pos[xb]);
+      total_distance += get_dist(P, a, tgt_state.tok_to_pos[xc]);
       hash ^= hash_pos(c, tgt_state.tok_to_pos[xb]);
       hash ^= hash_pos(a, tgt_state.tok_to_pos[xc]);
-      if(loop2_token(xb)) total_distance += 2;
-      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
-         loop2_token(xc)) total_distance += 2;
 
+      if(redo_reach) reachability_cost = reachability(P);
+      
       last_direction_src ^= 1;
 
     }else{
@@ -322,11 +211,14 @@ struct beam_state {
       u32 xb = tgt_state.pos_to_tok[b];
       u32 xc = tgt_state.pos_to_tok[c];
 
-      total_distance -= P.dist[src_state.tok_to_pos[xb]][b];
-      total_distance -= P.dist[src_state.tok_to_pos[xc]][c];
-      if(loop2_token(xb)) total_distance -= 2;
-      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
-         loop2_token(xc)) total_distance -= 2;
+      bool redo_reach =
+        (src_state.tok_to_pos[xb] == b) ||
+        (src_state.tok_to_pos[xc] == c) ||
+        (src_state.tok_to_pos[xb] == c) ||
+        (src_state.tok_to_pos[xc] == a);
+      
+      total_distance -= get_dist(P, src_state.tok_to_pos[xb], b);
+      total_distance -= get_dist(P, src_state.tok_to_pos[xc], c);
       hash ^= hash_pos(src_state.tok_to_pos[xb], b);
       hash ^= hash_pos(src_state.tok_to_pos[xc], c);
     
@@ -337,16 +229,14 @@ struct beam_state {
       tgt_state.tok_to_pos[xb] = c;
       tgt_state.tok_to_pos[xc] = a;
 
-      total_distance += P.dist[src_state.tok_to_pos[xb]][c];
-      total_distance += P.dist[src_state.tok_to_pos[xc]][a];
-      if(loop2_token(xb)) total_distance += 2;
-      if(src_state.pos_to_tok[tgt_state.tok_to_pos[xb]] != xc &&
-         loop2_token(xc)) total_distance += 2;
+      total_distance += get_dist(P, src_state.tok_to_pos[xb], c);
+      total_distance += get_dist(P, src_state.tok_to_pos[xc], a);
       hash ^= hash_pos(src_state.tok_to_pos[xb], c);
       hash ^= hash_pos(src_state.tok_to_pos[xc], a);
 
+      if(redo_reach) reachability_cost = reachability(P);
+      
       last_direction_tgt ^= 1;
-
     }
   }
   

@@ -41,7 +41,8 @@ const u64 HASH_MASK = HASH_SIZE-1;
 uint64_t *HS = nullptr;
 
 vector<u8> find_solution
-(puzzle_data const& P,
+(u32 goal,
+ puzzle_data const& P,
  puzzle_state const& initial_state, u8 initial_direction,
  i32 istep,
  euler_tour tour_current)
@@ -60,7 +61,7 @@ vector<u8> find_solution
     }else{
       if(nstack_moves == istep+1) {
         auto v = S.value(P);
-        if(v == 0) {
+        if(v == goal) {
           return vector<u8>(stack_moves, stack_moves + nstack_moves);
         }
       }
@@ -128,7 +129,7 @@ void traverse_euler_tour
             ncommit += 1;
           }
 
-          FOR(m, 12) if(automaton::allow_move[stack_automaton[istep]] & bit(m)) {
+          FOR(m, 6) if(automaton::allow_move[stack_automaton[istep]] & bit(m)) {
             auto [v,h] = S.plan_move(P, m);
             auto prev = HS[h&HASH_MASK];
             if(prev != h) {
@@ -181,7 +182,7 @@ vector<u8> beam_search
   }
 
   beam_state S; S.reset(P, initial_state, initial_direction);
-  i32 max_score = S.total_distance + 512;
+  i32 max_score = S.value(P) + 512;
   debug(max_score);
   vector<u64> histogram(max_score+1, 0);
   
@@ -296,6 +297,45 @@ vector<u8> beam_search
       endl;
 
     tours_current = tours_next;
+
+//     {
+//       vector<u8> solution;
+      
+// #pragma omp parallel
+//       {
+//         while(1) {
+//           euler_tour tour_current;
+// #pragma omp critical
+//           { if(!tours_next.empty()) {
+//               tour_current = tours_next.back();
+//               tours_next.pop_back();
+//             }else{
+//               tour_current.size = 0;
+//             }
+//           }
+//           if(tour_current.size == 0) break;
+          
+//           auto lsolution = find_solution
+//             (low,
+//              P, initial_state, initial_direction,
+//              istep,
+//              tour_current);
+//           if(!lsolution.empty()) {
+//             #pragma omp critical
+//             {
+//               solution = lsolution;
+//             }
+//           }
+//         }
+//       }
+
+//       beam_state state = S;
+//       for(auto m : solution) state.do_move(P, m);
+//       cerr << " === SRC ===" << endl;
+//       state.src_state.print(P);
+//       cerr << " === TGT ===" << endl;
+//       state.tgt_state.print(P);
+//     }
     
     if(low == 0) {
       vector<u8> solution;
@@ -315,7 +355,7 @@ vector<u8> beam_search
           if(tour_current.size == 0) break;
           
           auto lsolution = find_solution
-            (P, initial_state, initial_direction,
+            (0, P, initial_state, initial_direction,
              istep,
              tour_current);
           if(!lsolution.empty()) {
