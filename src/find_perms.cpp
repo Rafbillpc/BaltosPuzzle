@@ -265,18 +265,18 @@
 // }
 
 int main(int argc, char** argv) {
-  runtime_assert(argc == 3);
+  // runtime_assert(argc == 3);
 
-  i64 sz = atoi(argv[1]);
-  i32 initial_direction = atoi(argv[2]);
+  // i64 sz = atoi(argv[1]);
+  // i32 initial_direction = atoi(argv[2]);
   
-  automaton::init();
-  auto C = load_configurations();
+  // automaton::init();
+  // auto C = load_configurations();
 
-  runtime_assert(C.count(sz));
-  unique_ptr<puzzle_data> puzzle_ptr = make_unique<puzzle_data>();
-  puzzle_ptr->make(sz);
-  runtime_assert(C.count(sz));
+  // runtime_assert(C.count(sz));
+  // unique_ptr<puzzle_data> puzzle_ptr = make_unique<puzzle_data>();
+  // puzzle_ptr->make(sz);
+  // runtime_assert(C.count(sz));
   
   // find_perms();
   // solve(*puzzle_ptr, C[sz], initial_direction);

@@ -1,8 +1,8 @@
 #pragma once
 #include "header.hpp"
 
-const i32 du[6] = {-1,0,1,1,0,-1};
-const i32 dv[6] = {0,1,1,0,-1,-1};
+const i32 du[6] = {0,1,1,0,-1,-1};
+const i32 dv[6] = {1,1,0,-1,-1,0};
 
 const u32 MAX_SIZE = 2107;
 const u32 MAX_SOLUTION_SIZE = 50'000;
@@ -19,6 +19,8 @@ struct puzzle_data {
   puzzle_rot data[MAX_SIZE];
   i32 dist[MAX_SIZE][MAX_SIZE];
   array<i32,2> dist_delta[MAX_SIZE][MAX_SIZE];
+
+  array<i32,2> dist_direction[MAX_SIZE][MAX_SIZE];
 
   array<i32, 2> to_coord[MAX_SIZE];
   map<array<i32, 2>, u32> from_coord;
@@ -97,6 +99,21 @@ struct puzzle_data {
           }
           v = data[v].data[x];
         }
+      }
+    }
+
+    FOR(u, size) FOR(v, size) {
+      auto delta = dist_delta[u][v];
+      if(delta[0] == 0 && delta[1] == 0) {
+        dist_direction[u][v] = {0,0};
+      }else if(delta[0] == delta[1]) {
+        dist_direction[u][v] = {1,delta[0]};
+      }else if(delta[0] == 0) {
+        dist_direction[u][v] = {0,delta[1]};
+      }else if(delta[1] == 0) {
+        dist_direction[u][v] = {2,delta[0]};
+      }else{
+        dist_direction[u][v] = {3,0};
       }
     }
     

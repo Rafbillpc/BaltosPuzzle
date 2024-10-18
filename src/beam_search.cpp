@@ -129,7 +129,7 @@ void traverse_euler_tour
             ncommit += 1;
           }
 
-          FOR(m, 6) if(automaton::allow_move[stack_automaton[istep]] & bit(m)) {
+          FOR(m, 12) if(automaton::allow_move[stack_automaton[istep]] & bit(m)) {
             auto [v,h] = S.plan_move(P, m);
             auto prev = HS[h&HASH_MASK];
             if(prev != h) {
@@ -182,7 +182,7 @@ vector<u8> beam_search
   }
 
   beam_state S; S.reset(P, initial_state, initial_direction);
-  i32 max_score = S.value(P) + 512;
+  i32 max_score = S.value(P) + 1000;
   debug(max_score);
   vector<u64> histogram(max_score+1, 0);
   
