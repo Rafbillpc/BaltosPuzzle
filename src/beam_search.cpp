@@ -36,7 +36,7 @@ euler_tour get_new_tree(){
   return tour;
 }
 
-const u64 HASH_SIZE = 1ull<<22;
+const u64 HASH_SIZE = 1ull<<30;
 const u64 HASH_MASK = HASH_SIZE-1;
 uint64_t *HS = nullptr;
 
@@ -289,7 +289,7 @@ vector<u8> beam_search
     i64 total_size = 0;
     for(auto const& t : tours_next) total_size += t.size;
     
-    cerr << setw(6) << istep <<
+    cerr << setw(6) << istep+1 <<
       ": scores = " << setw(3) << low << ".." << setw(3) << cutoff <<
       ", tree size = " << setw(12) << total_size <<
       ", num trees = " << setw(4) << tours_next.size() <<

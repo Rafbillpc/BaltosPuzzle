@@ -26,9 +26,9 @@ void solve(puzzle_data const& P,
   for(auto m : solution) {
     if(m < 6) {
       if(last_direction_src == 0) {
-        L.pb('1'+m);
+        L.pb('1'+(m+1)%6);
       }else{
-        L.pb('A'+(m+5)%6);
+        L.pb('A'+(m+6)%6);
       }
       
       last_direction_src ^= 1;
@@ -36,9 +36,9 @@ void solve(puzzle_data const& P,
       m -= 6;
 
       if(last_direction_tgt == 0) {
-        R.pb('A'+(m+2)%6);
+        R.pb('A'+(m+3)%6);
       }else{
-        R.pb('1'+(m+3)%6);
+        R.pb('1'+(m+4)%6);
       }
       
       last_direction_tgt ^= 1;

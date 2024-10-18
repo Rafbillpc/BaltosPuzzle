@@ -42,25 +42,29 @@ int main(int argc, char** argv) {
   string sol = get_solution(filename);
 
   if(sol.empty()) return 0;
-  
+ 
   puzzle_state state = C[sz];
   u8 dir = isalpha(sol[0]) ? 1 : 0;
+
+  state.print(puzzle);
 
   for(auto c : sol) {
     u8 m;
     if(dir == 0) {
       m = c - '1';
+      m = (m+1)%6;
     }else{
       m = c - 'A';
-      m = (m+1)%6;
+      m = (m+2)%6;
     }
 
     state.do_move(puzzle, m, dir);
     dir ^= 1;
 
     cerr << " ==================== " << endl;
+    cout << "MOVE: " << c << endl;
     state.print(puzzle);
   }
-  
+
   return 0;
 }

@@ -80,7 +80,7 @@ struct beam_state {
     }
     return
       10 * total_distance
-      + 16 * penalty_cost
+      + 8 * penalty_cost
       + 21 * reachability_cost
       + (last_direction_src != last_direction_tgt);
     
@@ -193,17 +193,14 @@ struct beam_state {
         penalty_cost -= penalty[z][dir[0]][1];
       }
     }
-
   }
   
   CUDA_FN
   tuple<u32, u64> plan_move(puzzle_data const& P, u8 move) {
-    auto c = penalty_cost;
     do_move(P, move);
     u32 v = value(P);
     u64 h = get_hash(P);
     undo_move(P, move);
-    runtime_assert(c == penalty_cost);
     return {v,h};
   }
     
