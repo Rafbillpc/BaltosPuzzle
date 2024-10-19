@@ -1,6 +1,74 @@
 #pragma once
 #include "header.hpp"
 #include "puzzle.hpp"
+#include <memory>
+
+struct reachability_t {
+  bitset<1<<18> data;
+
+  void init() {
+    unique_ptr<puzzle_data> P9 = make_unique<puzzle_data>();
+    P9->make(9);
+
+    u32 cells[19]; i32 ncells = 0;
+
+    vector<u32> G[19];
+    
+    FOR(d, 6) {
+      i32 x = P9->center;
+      x = P9->data[x].data[d];
+      cells[ncells++] = x;
+      x = P9->data[x].data[d];
+      cells[ncells++] = x;
+      x = P9->data[x].data[(d+2)%6];
+      cells[ncells++] = x;
+    }
+    cells[ncells++] = P9->center;
+
+    runtime_assert(ncells == 19);
+    debug(vector<i32>(cells, cells+19));
+
+    FOR(i, 19) FOR(d, 6) FOR(j, 19) if(cells[j] == P9->data[cells[i]].data[d]) {
+      G[i].pb(j);
+    }
+    
+    FOR(mask, 1<<19) if(mask & bit(18)) {
+      i32 uf[19];
+      FOR(i, 19) uf[i] = i;
+      auto find = [&](auto self, i32 i) -> i32 {
+        return uf[i] == i ? i : uf[i] = self(self, uf[i]);
+      };
+      auto unite = [&](i32 i, i32 j) {
+        i = find(find,i);
+        j = find(find,j);
+        if(i != j) uf[i] = j;
+      };
+      
+      FOR(i, 19) if(!(mask&bit(i))) for(auto j : G[i]) if(!(mask&bit(j))) {
+            unite(i,j);
+          }
+
+      i32 nroots = 0;
+      FOR(i, 19) if(!(mask&bit(i))) {
+        if(find(find, i) == i) nroots += 1;
+      }
+      data[mask & (bit(18)-1)] = (nroots < 2);
+
+      // bool pr[19];
+      // FOR(i, 19) pr[i] = mask&bit(i);
+      // if(!(data[mask & (bit(18)-1)])) {
+      //   cout << "==========" << endl;
+      //   cout << "  " << pr[13] << " " << pr[14] << " " << pr[16] << endl;
+      //   cout << " " << pr[11] << " " << pr[12] << " " << pr[15] << " " << pr[17] << endl;
+      //   cout << pr[10] << " " << pr[9] << " " << pr[18] << " " << pr[0] << " " << pr[1] << endl;
+      //   cout << " " << pr[8] << " " << pr[6] << " " << pr[3] << " " << pr[2] << endl;
+      //   cout << "  " << pr[7] << " " << pr[5] << " " << pr[4] << endl;
+      // }
+    }
+  }
+};
+
+extern reachability_t reachability;
 
 FORCE_INLINE
 u64 hash_pos(u32 x, u32 y) {
@@ -15,14 +83,12 @@ struct beam_state {
 
   u64 hash;
   u32 total_distance;
-  u32 reachability_cost;
   u32 penalty_cost;
+  u32 reachability_error;
 
-  u32 penalty[MAX_SIZE][3][5];
+  u32  penalty[MAX_SIZE][3][5];
+  bool cell_solved[MAX_SIZE];
 
-  i32 D[MAX_SIZE*2];
-  i32 Q[MAX_SIZE*2];
-  
   CUDA_FN
   void reset(puzzle_data const& P,
              puzzle_state const& initial_state,
@@ -33,74 +99,92 @@ struct beam_state {
     last_direction_tgt = (initial_direction >> 1) & 1;
 
     FOR(i, P.size) FOR(j, 3) FOR(k, 5) penalty[i][j][k] = 0;
+    FOR(i, P.size) {
+      cell_solved[i] =
+        src_state.pos_to_tok[i] != 0 &&
+        src_state.pos_to_tok[i] == tgt_state.pos_to_tok[i];
+    }
     
     total_distance = 0;
     penalty_cost = 0;
     FORU(u, 1, P.size-1) add_dist(P, u);
-    reachability_cost = reachability(P);
 
     hash = get_hash0(P);
   }
 
-  u32 reachability(puzzle_data const& P) {
-    return 0;
-    return reachability_src(P);
+  FORCE_INLINE
+  void mark_unsolved(u32 u) {
+    return;
+    // cell_solved[u] = 0;
+  }
+
+  // FORCE_INLINE
+  // bool try_mark_solved(puzzle_data const& P, u32 u) {
+  //   u32 mask = 0;
+
+  //   u32 ncells = 0;
+  //   FOR(d, 6) {
+  //     i32 x = u;
+  //     x = P.data[x].data[d];
+  //     if(cell_solved[x]) mask |= bit(ncells);
+  //     ncells += 1;
+  //     x = P.data[x].data[d];
+  //     if(cell_solved[x]) mask |= bit(ncells);
+  //     ncells += 1;
+  //     x = P.data[x].data[(d+2)%6];
+  //     if(cell_solved[x]) mask |= bit(ncells);
+  //     ncells += 1;
+  //   }
+    
+  //   if(reachability.data[mask]) {
+  //     cell_solved[u] = 1;
+  //     return true;
+  //   }else{
+  //     return false;
+  //   }
+  // }
+
+  FORCE_INLINE
+  void try_mark_solved2(puzzle_data const& P,
+                        u32 c, bool doc,
+                        u32 a, bool doa) {
+    return;
+    // if(doc && doa) {
+    //   if(try_mark_solved(P, c)) {
+    //     reachability_error = !try_mark_solved(P, a);
+    //   }if(try_mark_solved(P, a)) {
+    //     reachability_error = !try_mark_solved(P, c);
+    //   }else{
+    //     reachability_error = 1;
+    //   }
+    // }else if(doc) {
+    //   reachability_error = !try_mark_solved(P, c);
+    // }else if(doa) {
+    //   reachability_error = !try_mark_solved(P, a);
+    // }else{
+    //   reachability_error = 0;
+    // }
+    
   }
   
-  u32 reachability_src(puzzle_data const& P) {
-    u32 ret = 0;
-    
-    FOR(i, P.size) D[i] = P.size;
-    i32 qi = MAX_SIZE, qj = MAX_SIZE;
-    Q[qj++] = src_state.tok_to_pos[0]; D[src_state.tok_to_pos[0]] = 0;
-    while(qi < qj) {
-      i32 u = Q[qi++];
-      FOR(d, 6) {
-        i32 v = P.data[u].data[d];
-        i32 cost = D[u] + (src_state.pos_to_tok[v] == tgt_state.pos_to_tok[v]);
-        if(D[v] > cost) {
-          D[v] = cost;
-          if(cost == D[u]) {
-            ret = cost;
-            Q[--qi] = v;
-          }else{
-            Q[qj++] = v;
-          }
-        }
-      }
-    }
-
-    return ret;
-  }
- 
   CUDA_FN
   u32 value(puzzle_data const& P) {
-    if(penalty_cost) {
-      // debug(total_distance, penalty_cost);
-    }
     return
       10 * total_distance
       + 8 * penalty_cost
-      + 21 * reachability_cost
       + (last_direction_src != last_direction_tgt);
     
-    u32 vd = 0;
-    FORU(u, 1, P.size-1) {
-      vd += P.dist[src_state.tok_to_pos[u]][tgt_state.tok_to_pos[u]];
-    }
+    // u32 vd = 0;
+    // FORU(u, 1, P.size-1) {
+    //   vd += P.dist[src_state.tok_to_pos[u]][tgt_state.tok_to_pos[u]];
+    // }
 
-    if(vd != total_distance) {
-      debug(vd, total_distance);
-    }
-    runtime_assert(vd == total_distance);
-
-    u32 vr = reachability(P);
-    if(vr != reachability_cost) {
-      debug(vr, reachability_cost);
-    }
-    runtime_assert(vr == reachability_cost);
-    
-    return vd + vr + (last_direction_src != last_direction_tgt);
+    // if(vd != total_distance) {
+    //   debug(vd, total_distance);
+    // }
+    // runtime_assert(vd == total_distance);
+   
+    // return vd + (last_direction_src != last_direction_tgt);
   }
   
   CUDA_FN
@@ -220,12 +304,8 @@ struct beam_state {
       u32 xb = src_state.pos_to_tok[b];
       u32 xc = src_state.pos_to_tok[c];
 
-      bool redo_reach =
-        (b == tgt_state.tok_to_pos[xb]) ||
-        (c == tgt_state.tok_to_pos[xc]) ||
-        (c == tgt_state.tok_to_pos[xb]) ||
-        (a == tgt_state.tok_to_pos[xc]);
-      
+      mark_unsolved(b);
+      mark_unsolved(c);
       rem_dist(P, xb);
       rem_dist(P, xc);
       hash ^= hash_pos(b, tgt_state.tok_to_pos[xb]);
@@ -243,7 +323,10 @@ struct beam_state {
       hash ^= hash_pos(c, tgt_state.tok_to_pos[xb]);
       hash ^= hash_pos(a, tgt_state.tok_to_pos[xc]);
 
-      if(redo_reach) reachability_cost = reachability(P);
+      try_mark_solved2
+        (P,
+         c, c == tgt_state.tok_to_pos[xb],
+         a, a == tgt_state.tok_to_pos[xc]);
       
       last_direction_src ^= 1;
 
@@ -262,12 +345,8 @@ struct beam_state {
       u32 xb = tgt_state.pos_to_tok[b];
       u32 xc = tgt_state.pos_to_tok[c];
 
-      bool redo_reach =
-        (src_state.tok_to_pos[xb] == b) ||
-        (src_state.tok_to_pos[xc] == c) ||
-        (src_state.tok_to_pos[xb] == c) ||
-        (src_state.tok_to_pos[xc] == a);
- 
+      mark_unsolved(b);
+      mark_unsolved(c);
       rem_dist(P, xb);
       rem_dist(P, xc);     
       hash ^= hash_pos(src_state.tok_to_pos[xb], b);
@@ -285,8 +364,11 @@ struct beam_state {
       hash ^= hash_pos(src_state.tok_to_pos[xb], c);
       hash ^= hash_pos(src_state.tok_to_pos[xc], a);
 
-      if(redo_reach) reachability_cost = reachability(P);
-      
+      try_mark_solved2
+        (P,
+         c, src_state.tok_to_pos[xb] == c,
+         a, src_state.tok_to_pos[xc] == a);
+ 
       last_direction_tgt ^= 1;
     }
   }
@@ -294,5 +376,28 @@ struct beam_state {
   CUDA_FN
   void undo_move(puzzle_data const& P, u8 move) {
     do_move(P, 6*(move/6) + (move+3)%6);
+  }
+
+  void print(puzzle_data const& P) {
+    u32 ix = 0;
+    FOR(u, 2*P.n-1) {
+      u32 ncol = 2*P.n-1 - abs(u-(P.n-1));
+      FOR(i, abs(u-(P.n-1))) cerr << "    ";
+      FOR(icol, ncol) {
+        u32 u = src_state.pos_to_tok[ix];
+        if(u == 0) {
+        }else{
+          u = tgt_state.tok_to_pos[u];
+          if(u < tgt_state.tok_to_pos[0]) u += 1;
+        }
+        if(ix == tgt_state.tok_to_pos[0]) {
+          cout << "\033[1;31m" << setw(4) << u << "\033[0m" << "    ";
+        }else{
+          cout << setw(4) << u << "    ";
+        }
+        ix += 1;
+      }
+      cerr << endl;
+    }
   }
 };

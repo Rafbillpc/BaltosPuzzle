@@ -1,3 +1,4 @@
+#include "beam_state.hpp"
 #include "header.hpp"
 #include "puzzle.hpp"
 #include "beam_search.hpp"
@@ -70,6 +71,7 @@ int main(int argc, char** argv) {
   
   init_rng();
   automaton::init();
+  reachability.init();
   
   auto C = load_configurations();
 

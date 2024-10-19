@@ -129,18 +129,30 @@ void traverse_euler_tour
             ncommit += 1;
           }
 
-          FOR(m, 12) if(automaton::allow_move[stack_automaton[istep]] & bit(m)) {
-            auto [v,h] = S.plan_move(P, m);
-            auto prev = HS[h&HASH_MASK];
-            if(prev != h) {
-              HS[h&HASH_MASK] = h;
-              low = min(low, v);
-              high = max(high, v);
-              histogram[v] += 1;
-              tour_next->push(1+m);
-              tour_next->push(0);
+          bool ks[12];
+          u32  vs[12];
+          
+          FOR(m, 12) {
+            ks[m] = 0;
+            if(automaton::allow_move[stack_automaton[istep]] & bit(m)) {
+              auto [v,h] = S.plan_move(P, m);
+              auto prev = HS[h&HASH_MASK];
+              if(prev != h) {
+                HS[h&HASH_MASK] = h;
+                ks[m] = 1;
+                vs[m] = v;
+              }
             }
           }
+
+          FOR(m, 12) if(ks[m]) {
+            low = min(low, vs[m]);
+            high = max(high, vs[m]);
+            histogram[vs[m]] += 1;
+            tour_next->push(1+m);
+            tour_next->push(0);
+          }
+          
         }
       }
 
@@ -182,7 +194,7 @@ vector<u8> beam_search
   }
 
   beam_state S; S.reset(P, initial_state, initial_direction);
-  i32 max_score = S.value(P) + 1000;
+  i32 max_score = S.value(P) + 5000;
   debug(max_score);
   vector<u64> histogram(max_score+1, 0);
   
@@ -331,10 +343,11 @@ vector<u8> beam_search
 
 //       beam_state state = S;
 //       for(auto m : solution) state.do_move(P, m);
-//       cerr << " === SRC ===" << endl;
-//       state.src_state.print(P);
-//       cerr << " === TGT ===" << endl;
-//       state.tgt_state.print(P);
+//       state.print(P);
+//       // cerr << " === SRC ===" << endl;
+//       // state.src_state.print(P);
+//       // cerr << " === TGT ===" << endl;
+//       // state.tgt_state.print(P);
 //     }
     
     if(low == 0) {

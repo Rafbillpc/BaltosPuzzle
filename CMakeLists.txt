@@ -43,6 +43,8 @@ add_subdirectory(external/indicators)
 # Common
 add_library(common
   src/header.cpp
+  src/beam_state.cpp
+  src/beam_search.cpp
 )
 target_include_directories(common PUBLIC
   src)
@@ -55,7 +57,6 @@ target_precompile_headers(common PRIVATE src/header.hpp)
 # Find perms
 add_executable(find_perms
   src/find_perms.cpp
-  src/beam_search.cpp
 )
 target_link_libraries(find_perms PUBLIC common)
 target_precompile_headers(find_perms REUSE_FROM common)
@@ -63,7 +64,6 @@ target_precompile_headers(find_perms REUSE_FROM common)
 # Solver
 add_executable(solver
   src/main.cpp
-  src/beam_search.cpp
 )
 target_link_libraries(solver PUBLIC common)
 target_precompile_headers(solver REUSE_FROM common)
