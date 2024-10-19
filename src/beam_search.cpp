@@ -368,7 +368,7 @@ vector<u8> beam_search
           if(tour_current.size == 0) break;
           
           auto lsolution = find_solution
-            (0, P, initial_state, initial_direction,
+            (low, P, initial_state, initial_direction,
              istep,
              tour_current);
           if(!lsolution.empty()) {

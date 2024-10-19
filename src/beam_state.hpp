@@ -3,6 +3,9 @@
 #include "puzzle.hpp"
 #include <memory>
 
+const i32 nei_solved_penalty[7]
+= {0,2,3,4,5,7,9}; // 847
+
 struct reachability_t {
   bitset<1<<18> data;
 
@@ -84,10 +87,12 @@ struct beam_state {
   u64 hash;
   u32 total_distance;
   u32 penalty_cost;
+  u32 nei_cost;
   u32 reachability_error;
 
   u32  penalty[MAX_SIZE][3][5];
   bool cell_solved[MAX_SIZE];
+  u32  nei_solved_count[MAX_SIZE];
 
   CUDA_FN
   void reset(puzzle_data const& P,
@@ -98,25 +103,34 @@ struct beam_state {
     last_direction_src = (initial_direction >> 0) & 1;
     last_direction_tgt = (initial_direction >> 1) & 1;
 
-    FOR(i, P.size) FOR(j, 3) FOR(k, 5) penalty[i][j][k] = 0;
-    FOR(i, P.size) {
-      cell_solved[i] =
-        src_state.pos_to_tok[i] != 0 &&
-        src_state.pos_to_tok[i] == tgt_state.pos_to_tok[i];
-    }
-    
     total_distance = 0;
     penalty_cost = 0;
+    nei_cost = 0;
+    reachability_error = 0;
+    
+    FOR(i, P.size) FOR(j, 3) FOR(k, 5) penalty[i][j][k] = 0;
+    FOR(i, P.size) {
+      cell_solved[i] = 0;
+      nei_solved_count[i] = 0;
+    }
+    
+    FOR(i, P.size) {
+      if(src_state.pos_to_tok[i] != 0 &&
+         src_state.pos_to_tok[i] == tgt_state.pos_to_tok[i]) {
+        mark_solved(P, i);
+      }
+    }
+    
     FORU(u, 1, P.size-1) add_dist(P, u);
 
     hash = get_hash0(P);
   }
 
-  FORCE_INLINE
-  void mark_unsolved(u32 u) {
-    return;
-    // cell_solved[u] = 0;
-  }
+  // FORCE_INLINE
+  // void mark_unsolved(u32 u) {
+  //   return;
+  //   // cell_solved[u] = 0;
+  // }
 
   // FORCE_INLINE
   // bool try_mark_solved(puzzle_data const& P, u32 u) {
@@ -144,34 +158,77 @@ struct beam_state {
   //   }
   // }
 
-  FORCE_INLINE
-  void try_mark_solved2(puzzle_data const& P,
-                        u32 c, bool doc,
-                        u32 a, bool doa) {
-    return;
-    // if(doc && doa) {
-    //   if(try_mark_solved(P, c)) {
-    //     reachability_error = !try_mark_solved(P, a);
-    //   }if(try_mark_solved(P, a)) {
-    //     reachability_error = !try_mark_solved(P, c);
-    //   }else{
-    //     reachability_error = 1;
-    //   }
-    // }else if(doc) {
-    //   reachability_error = !try_mark_solved(P, c);
-    // }else if(doa) {
-    //   reachability_error = !try_mark_solved(P, a);
-    // }else{
-    //   reachability_error = 0;
-    // }
+  // FORCE_INLINE
+  // void try_mark_solved2(puzzle_data const& P,
+  //                       u32 c, bool doc,
+  //                       u32 a, bool doa) {
+  //   return;
+  //   // if(doc && doa) {
+  //   //   if(try_mark_solved(P, c)) {
+  //   //     reachability_error = !try_mark_solved(P, a);
+  //   //   }if(try_mark_solved(P, a)) {
+  //   //     reachability_error = !try_mark_solved(P, c);
+  //   //   }else{
+  //   //     reachability_error = 1;
+  //   //   }
+  //   // }else if(doc) {
+  //   //   reachability_error = !try_mark_solved(P, c);
+  //   // }else if(doa) {
+  //   //   reachability_error = !try_mark_solved(P, a);
+  //   // }else{
+  //   //   reachability_error = 0;
+  //   // }
     
+  // }
+
+  void mark_unsolved(puzzle_data const& P, u32 u) {
+    runtime_assert(cell_solved[u]);
+    cell_solved[u] = 0;
+    nei_cost += nei_solved_penalty[nei_solved_count[u]];
+    FOR(d, 6) {
+      auto v = P.data[u].data[d];
+      if(!cell_solved[v]) {
+        nei_cost -= nei_solved_penalty[nei_solved_count[v]];
+        nei_cost += nei_solved_penalty[nei_solved_count[v]-1];
+      }
+      nei_solved_count[v] -= 1;
+    }
+  }
+
+  void mark_solved(puzzle_data const& P, u32 u) {
+    runtime_assert(!cell_solved[u]);
+    cell_solved[u] = 1;
+    nei_cost -= nei_solved_penalty[nei_solved_count[u]];
+    FOR(d, 6) {
+      auto v = P.data[u].data[d];
+      if(!cell_solved[v]) {
+        nei_cost -= nei_solved_penalty[nei_solved_count[v]];
+        nei_cost += nei_solved_penalty[nei_solved_count[v]+1];
+      }
+      nei_solved_count[v] += 1;
+    }
   }
   
   CUDA_FN
   u32 value(puzzle_data const& P) {
+
+    // i32 true_nei_cost = 0;
+    // FOR(u, P.size) if(!cell_solved[u]) {
+    //   i32 cnt = 0;
+    //   FOR(d, 6) {
+    //     auto v = P.data[u].data[d];
+    //     if(cell_solved[v]) cnt += 1;
+    //   }
+    //   runtime_assert(cnt == nei_solved_count[u]);
+    //   true_nei_cost += nei_solved_penalty[cnt];
+    // }
+    // // debug(nei_cost, true_nei_cost);
+    // runtime_assert(nei_cost == true_nei_cost);
+    
     return
       10 * total_distance
       + 8 * penalty_cost
+      + 1 * (nei_cost - nei_solved_penalty[6])
       + (last_direction_src != last_direction_tgt);
     
     // u32 vd = 0;
@@ -281,10 +338,12 @@ struct beam_state {
   
   CUDA_FN
   tuple<u32, u64> plan_move(puzzle_data const& P, u8 move) {
+    auto old_nei = nei_cost;
     do_move(P, move);
     u32 v = value(P);
     u64 h = get_hash(P);
     undo_move(P, move);
+    runtime_assert(nei_cost == old_nei);
     return {v,h};
   }
     
@@ -304,12 +363,12 @@ struct beam_state {
       u32 xb = src_state.pos_to_tok[b];
       u32 xc = src_state.pos_to_tok[c];
 
-      mark_unsolved(b);
-      mark_unsolved(c);
       rem_dist(P, xb);
       rem_dist(P, xc);
       hash ^= hash_pos(b, tgt_state.tok_to_pos[xb]);
       hash ^= hash_pos(c, tgt_state.tok_to_pos[xc]);
+      if(b == tgt_state.tok_to_pos[xb]) mark_unsolved(P, b);
+      if(c == tgt_state.tok_to_pos[xc]) mark_unsolved(P, c);
 
       src_state.pos_to_tok[a]  = xc;
       src_state.pos_to_tok[b]  = 0;
@@ -322,12 +381,9 @@ struct beam_state {
       add_dist(P, xb);
       hash ^= hash_pos(c, tgt_state.tok_to_pos[xb]);
       hash ^= hash_pos(a, tgt_state.tok_to_pos[xc]);
+      if(c == tgt_state.tok_to_pos[xb]) mark_solved(P, c);
+      if(a == tgt_state.tok_to_pos[xc]) mark_solved(P, a);
 
-      try_mark_solved2
-        (P,
-         c, c == tgt_state.tok_to_pos[xb],
-         a, a == tgt_state.tok_to_pos[xc]);
-      
       last_direction_src ^= 1;
 
     }else{
@@ -345,12 +401,12 @@ struct beam_state {
       u32 xb = tgt_state.pos_to_tok[b];
       u32 xc = tgt_state.pos_to_tok[c];
 
-      mark_unsolved(b);
-      mark_unsolved(c);
       rem_dist(P, xb);
       rem_dist(P, xc);     
       hash ^= hash_pos(src_state.tok_to_pos[xb], b);
       hash ^= hash_pos(src_state.tok_to_pos[xc], c);
+      if(src_state.tok_to_pos[xb] == b) mark_unsolved(P, b);
+      if(src_state.tok_to_pos[xc] == c) mark_unsolved(P, c);
     
       tgt_state.pos_to_tok[a]  = xc;
       tgt_state.pos_to_tok[b]  = 0;
@@ -363,12 +419,9 @@ struct beam_state {
       add_dist(P, xb);
       hash ^= hash_pos(src_state.tok_to_pos[xb], c);
       hash ^= hash_pos(src_state.tok_to_pos[xc], a);
+      if(src_state.tok_to_pos[xb] == c) mark_solved(P, c);
+      if(src_state.tok_to_pos[xc] == a) mark_solved(P, a);
 
-      try_mark_solved2
-        (P,
-         c, src_state.tok_to_pos[xb] == c,
-         a, src_state.tok_to_pos[xc] == a);
- 
       last_direction_tgt ^= 1;
     }
   }
@@ -392,6 +445,8 @@ struct beam_state {
         }
         if(ix == tgt_state.tok_to_pos[0]) {
           cout << "\033[1;31m" << setw(4) << u << "\033[0m" << "    ";
+        }else if(src_state.pos_to_tok[ix] == tgt_state.pos_to_tok[ix]) {
+          cout << "\033[1;32m" << setw(4) << u << "\033[0m" << "    ";
         }else{
           cout << setw(4) << u << "    ";
         }
