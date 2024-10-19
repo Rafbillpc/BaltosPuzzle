@@ -4,16 +4,6 @@
 #include "beam_search.hpp"
 #include <omp.h>
 
-void init_rng() {
-  u64 seed = time(0);
-  
-#pragma omp parallel
-  {
-    u64 offset = omp_get_thread_num();
-    rng.reset(seed + offset);
-  }
-}
-
 void solve(puzzle_data const& P,
            puzzle_state initial_state,
            u8 initial_directions,
@@ -69,7 +59,6 @@ int main(int argc, char** argv) {
   i32 initial_directions = atoi(argv[3]);
   debug(sz, width);
   
-  init_rng();
   automaton::init();
   reachability.init();
   

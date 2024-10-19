@@ -4,7 +4,7 @@
 #include <memory>
 
 const i32 nei_solved_penalty[7]
-= {0,2,3,4,5,7,9}; // 847
+= {0,0,2,3,5,8,12};
 
 struct reachability_t {
   bitset<1<<18> data;
@@ -211,37 +211,12 @@ struct beam_state {
   
   CUDA_FN
   u32 value(puzzle_data const& P) {
-
-    // i32 true_nei_cost = 0;
-    // FOR(u, P.size) if(!cell_solved[u]) {
-    //   i32 cnt = 0;
-    //   FOR(d, 6) {
-    //     auto v = P.data[u].data[d];
-    //     if(cell_solved[v]) cnt += 1;
-    //   }
-    //   runtime_assert(cnt == nei_solved_count[u]);
-    //   true_nei_cost += nei_solved_penalty[cnt];
-    // }
-    // // debug(nei_cost, true_nei_cost);
-    // runtime_assert(nei_cost == true_nei_cost);
-    
+   
     return
       10 * total_distance
-      + 8 * penalty_cost
+      // + 8 * penalty_cost
       + 1 * (nei_cost - nei_solved_penalty[6])
       + (last_direction_src != last_direction_tgt);
-    
-    // u32 vd = 0;
-    // FORU(u, 1, P.size-1) {
-    //   vd += P.dist[src_state.tok_to_pos[u]][tgt_state.tok_to_pos[u]];
-    // }
-
-    // if(vd != total_distance) {
-    //   debug(vd, total_distance);
-    // }
-    // runtime_assert(vd == total_distance);
-   
-    // return vd + (last_direction_src != last_direction_tgt);
   }
   
   CUDA_FN
@@ -261,6 +236,7 @@ struct beam_state {
     u32 x = src_state.tok_to_pos[u];
     u32 y = tgt_state.tok_to_pos[u];
     total_distance += P.dist[x][y];
+    return;
     auto dir = P.dist_direction[x][y];
     if(dir[0] == 3) return;
     if(dir[1] == 0) {
@@ -301,6 +277,7 @@ struct beam_state {
     u32 x = src_state.tok_to_pos[u];
     u32 y = tgt_state.tok_to_pos[u];
     total_distance -= P.dist[x][y];
+    return;
     auto dir = P.dist_direction[x][y];
     if(dir[0] == 3) return;
     if(dir[1] == 0) {

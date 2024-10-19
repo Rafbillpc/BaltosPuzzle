@@ -283,19 +283,25 @@ vector<u8> beam_search
     //   debug("FOUND");
     //   return; // TODO: find solution
     // }
-    
+
+    f64 average_score = 0;
     { u64 total_count = 0;
       cutoff = max_score;
       cutoff_keep_probability = 1.0;
       FORU(i, low, high) {
         if(total_count+histogram[i] > width) {
+          average_score += i * (width-total_count);
           cutoff = i;
           cutoff_keep_probability = (f32)(width-total_count) / (f32)(histogram[i]);
+          total_count = width;
           break;
         }
         total_count += histogram[i];
+        average_score += i * histogram[i];
       }
       FORU(i, low, high) histogram[i] = 0;
+      average_score /= max<f64>(1, total_count);
+       
     }
 
     i64 total_size = 0;
@@ -303,9 +309,10 @@ vector<u8> beam_search
     
     cerr << setw(6) << istep+1 <<
       ": scores = " << setw(3) << low << ".." << setw(3) << cutoff <<
-      ", tree size = " << setw(12) << total_size <<
+      ": avg = " << fixed << setprecision(2) << average_score << 
+      ", tree size = " << setw(11) << total_size <<
       ", num trees = " << setw(4) << tours_next.size() <<
-      ", elapsed = " << setw(10) << timer_s.elapsed() << "s" <<
+      ", elapsed = " << setw(10) << fixed << setprecision(5) << timer_s.elapsed() << "s" <<
       endl;
 
     tours_current = tours_next;

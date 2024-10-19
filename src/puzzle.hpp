@@ -87,7 +87,7 @@ struct puzzle_data {
               delta_u += dx * du[x] + dy * du[y];
               delta_v += dx * dv[x] + dy * dv[y];
 
-              i32 di = dx+dy;
+              i32 di = dx*dx+dy*dy;
 
               if(di < dist[u][w]) {
                 dist[u][w] = di;
