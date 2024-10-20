@@ -18,16 +18,13 @@ struct puzzle_data {
 
   puzzle_rot data[MAX_SIZE];
   i32 dist[MAX_SIZE][MAX_SIZE];
-  array<i32,2> dist_delta[MAX_SIZE][MAX_SIZE];
-
-  array<i32,2> dist_direction[MAX_SIZE][MAX_SIZE];
+  array<i32, 2> dist_pair[MAX_SIZE][MAX_SIZE];
 
   array<i32, 2> to_coord[MAX_SIZE];
   map<array<i32, 2>, u32> from_coord;
 
   i32 tgt_tok_to_pos[MAX_SIZE];
   i32 tgt_pos_to_tok[MAX_SIZE];
-  i32 rot_weight[MAX_SIZE];
   
   void make(i32 n_) {
     n = n_;
@@ -63,13 +60,6 @@ struct puzzle_data {
         u32 ix = from_coord[{u,v}];
         u32 at[6];
         FOR(d,6) at[d] = from_coord[{u+du[d],v+dv[d]}];
-          // { from_coord[{u-1,v}],
-          //   from_coord[{u,v+1}],
-          //   from_coord[{u+1,v+1}],
-          //   from_coord[{u+1,v}],
-          //   from_coord[{u,v-1}],
-          //   from_coord[{u-1,v-1}],
-          // };
         FOR(j, 6) data[ix].data[j] = at[j];
       }
     }
@@ -83,15 +73,11 @@ struct puzzle_data {
             i32 w = v;
             FORU(dy, 0, 2*n) {
 
-              i32 delta_u = 0, delta_v = 0;
-              delta_u += dx * du[x] + dy * du[y];
-              delta_v += dx * dv[x] + dy * dv[y];
-
-              i32 di = dx*dx+dy*dy;
+              i32 di = dx+dy;
 
               if(di < dist[u][w]) {
                 dist[u][w] = di;
-                dist_delta[u][w] = {delta_u,delta_v};
+                dist_pair[u][w] = {max(dx, dy), min(dx, dy)};
               }
               
               w = data[w].data[y];
@@ -102,38 +88,16 @@ struct puzzle_data {
       }
     }
 
-    FOR(u, size) FOR(v, size) {
-      auto delta = dist_delta[u][v];
-      if(delta[0] == 0 && delta[1] == 0) {
-        dist_direction[u][v] = {0,0};
-      }else if(delta[0] == delta[1]) {
-        dist_direction[u][v] = {1,delta[0]};
-      }else if(delta[0] == 0) {
-        dist_direction[u][v] = {0,delta[1]};
-      }else if(delta[1] == 0) {
-        dist_direction[u][v] = {2,delta[0]};
-      }else{
-        dist_direction[u][v] = {3,0};
-      }
-    }
+    array<i32, 2> max_pair = {0,0};
+    FOR(u, size) FOR(v, size) max_pair = max(max_pair, dist_pair[u][v]);
+    debug(max_pair);
+    
     
     FOR(i, size) {
       tgt_pos_to_tok[i] = (i == (i32)center ? 0 : (i < (i32)center ? 1+i : i));
     }
     FOR(i, size) {
       tgt_tok_to_pos[tgt_pos_to_tok[i]] = i;
-    }
-
-    
-    rot_weight[0] = 0;
-    FOR(layer, n-1) {
-      i32 u = layer, v = layer;
-      FOR(d, 6) {
-        FOR(k, n-1-layer) {
-          rot_weight[tgt_pos_to_tok[from_coord.at({u,v})]] = (n-layer);
-          u += du[d], v += dv[d];
-        }
-      }
     }
   }
 };

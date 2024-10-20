@@ -2,7 +2,7 @@
 #include "beam_search.hpp"
 #include <omp.h>
 
-const i64 MIN_TREE_SIZE  = 1<<17;
+const i64 MIN_TREE_SIZE = 1<<17;
 i64 tree_size = MIN_TREE_SIZE;
 
 using euler_tour_edge = u8;
@@ -85,7 +85,8 @@ void traverse_euler_tour
  euler_tour tour_current,
  vector<euler_tour> &tours_next,
  u64* histogram, u32& out_low, u32& out_high,
- u32 cutoff, f32 cutoff_keep_probability)
+ u32 cutoff, f32 cutoff_keep_probability,
+ bool save_states, f32 save_states_probability, vector<beam_state>& saved_states)
 {
   beam_state S; S.reset(P, initial_state, initial_direction);
 
@@ -100,6 +101,7 @@ void traverse_euler_tour
   auto *tour_next = &tours_next.back(); 
   runtime_assert(tour_next->max_size == tree_size);
 
+  f32 save_states_running = 1.0;
   f32 cutoff_running = 1.0;
 
   u32 low = out_low, high = out_high;
@@ -124,6 +126,14 @@ void traverse_euler_tour
           }
         }
         if(keep) {
+          if(save_states) {
+            save_states_running += save_states_probability;
+            if(save_states_running > 1.0) {
+              saved_states.pb(S);
+              save_states_running -= 1.0;
+            }
+          }
+          
           while(ncommit < nstack_moves) {
             tour_next->push(1+stack_moves[ncommit]);
             ncommit += 1;
@@ -136,11 +146,13 @@ void traverse_euler_tour
             ks[m] = 0;
             if(automaton::allow_move[stack_automaton[istep]] & bit(m)) {
               auto [v,h] = S.plan_move(P, m);
-              auto prev = HS[h&HASH_MASK];
-              if(prev != h) {
-                HS[h&HASH_MASK] = h;
-                ks[m] = 1;
-                vs[m] = v;
+              if(v <= cutoff) {
+                auto prev = HS[h&HASH_MASK];
+                if(prev != h) {
+                  HS[h&HASH_MASK] = h;
+                  ks[m] = 1;
+                  vs[m] = v;
+                }
               }
             }
           }
@@ -182,11 +194,11 @@ void traverse_euler_tour
   out_high = high;
 }
 
-vector<u8> beam_search
+beam_search_result beam_search
 (puzzle_data const& P,
  puzzle_state const& initial_state,
  u8 initial_direction,
- u64 width)
+ beam_search_config config)
 {
   if(!HS) {
     auto ptr = new uint64_t[HASH_SIZE];
@@ -194,7 +206,7 @@ vector<u8> beam_search
   }
 
   beam_state S; S.reset(P, initial_state, initial_direction);
-  i32 max_score = S.value(P) + 5000;
+  i32 max_score = S.value(P) * 2 + 1000;
   debug(max_score);
   vector<u64> histogram(max_score+1, 0);
   
@@ -209,6 +221,7 @@ vector<u8> beam_search
   debug(num_threads);
 
   vector<vector<u64>> L_histograms(num_threads, vector<u64>(max_score+1, 0));
+  vector<vector<beam_state>> L_saved_states(num_threads);
 
   for(i32 istep = 0;; ++istep) {
     timer timer_s;
@@ -230,7 +243,8 @@ vector<u8> beam_search
     
 #pragma omp parallel
     {
-      vector<u64>& L_histogram = L_histograms[omp_get_thread_num()];
+      auto thread_id = omp_get_thread_num();
+      vector<u64>& L_histogram = L_histograms[thread_id];
       vector<euler_tour> L_tours_next;
       
       u32 L_low = max_score, L_high = 0;
@@ -253,7 +267,9 @@ vector<u8> beam_search
            tour_current, 
            L_tours_next, 
            L_histogram.data(), L_low, L_high,
-           cutoff, cutoff_keep_probability);
+           cutoff, cutoff_keep_probability,
+           config.save_states, config.save_states_probability, L_saved_states[thread_id]
+           );
 
         #pragma omp critical
         {
@@ -279,21 +295,16 @@ vector<u8> beam_search
       }
     }
 
-    // if(best == 0) {
-    //   debug("FOUND");
-    //   return; // TODO: find solution
-    // }
-
     f64 average_score = 0;
     { u64 total_count = 0;
       cutoff = max_score;
       cutoff_keep_probability = 1.0;
       FORU(i, low, high) {
-        if(total_count+histogram[i] > width) {
-          average_score += i * (width-total_count);
+        if(total_count+histogram[i] > config.width) {
+          average_score += i * (config.width-total_count);
           cutoff = i;
-          cutoff_keep_probability = (f32)(width-total_count) / (f32)(histogram[i]);
-          total_count = width;
+          cutoff_keep_probability = (f32)(config.width-total_count) / (f32)(histogram[i]);
+          total_count = config.width;
           break;
         }
         total_count += histogram[i];
@@ -317,46 +328,6 @@ vector<u8> beam_search
 
     tours_current = tours_next;
 
-//     {
-//       vector<u8> solution;
-      
-// #pragma omp parallel
-//       {
-//         while(1) {
-//           euler_tour tour_current;
-// #pragma omp critical
-//           { if(!tours_next.empty()) {
-//               tour_current = tours_next.back();
-//               tours_next.pop_back();
-//             }else{
-//               tour_current.size = 0;
-//             }
-//           }
-//           if(tour_current.size == 0) break;
-          
-//           auto lsolution = find_solution
-//             (low,
-//              P, initial_state, initial_direction,
-//              istep,
-//              tour_current);
-//           if(!lsolution.empty()) {
-//             #pragma omp critical
-//             {
-//               solution = lsolution;
-//             }
-//           }
-//         }
-//       }
-
-//       beam_state state = S;
-//       for(auto m : solution) state.do_move(P, m);
-//       state.print(P);
-//       // cerr << " === SRC ===" << endl;
-//       // state.src_state.print(P);
-//       // cerr << " === TGT ===" << endl;
-//       // state.tgt_state.print(P);
-//     }
-    
     if(low == 0) {
       vector<u8> solution;
       
@@ -386,11 +357,19 @@ vector<u8> beam_search
           }
         }
       }
+
+      vector<beam_state> saved_states;
+      FOR(i, num_threads) {
+        saved_states.insert(end(saved_states), all(L_saved_states[i]));
+      }
       
-      return solution;
+      beam_search_result result {
+        .solution = solution,
+        .saved_states = saved_states,
+      };
+
+      return result;
     }
 
   }
-
-  return {};
 }

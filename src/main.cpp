@@ -8,8 +8,15 @@ void solve(puzzle_data const& P,
            puzzle_state initial_state,
            u8 initial_directions,
            i64 width) {
-  auto solution = beam_search
-    (P, initial_state, initial_directions, width);
+  beam_search_config config {
+    .width = (u64)width,
+    .save_states = false,
+    .save_states_probability = 0.0,
+  };
+  
+  auto result = beam_search
+    (P, initial_state, initial_directions, config);
+  auto solution = result.solution;
   
   vector<char> L, R;
   u8 last_direction_src = (initial_directions >> 0 & 1);

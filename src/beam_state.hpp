@@ -4,7 +4,7 @@
 #include <memory>
 
 const i32 nei_solved_penalty[7]
-= {0,0,2,3,5,8,12};
+= {0,0,2,4,7,10,14};
 
 struct reachability_t {
   bitset<1<<18> data;
@@ -86,11 +86,9 @@ struct beam_state {
 
   u64 hash;
   u32 total_distance;
-  u32 penalty_cost;
   u32 nei_cost;
   u32 reachability_error;
 
-  u32  penalty[MAX_SIZE][3][5];
   bool cell_solved[MAX_SIZE];
   u32  nei_solved_count[MAX_SIZE];
 
@@ -104,11 +102,9 @@ struct beam_state {
     last_direction_tgt = (initial_direction >> 1) & 1;
 
     total_distance = 0;
-    penalty_cost = 0;
     nei_cost = 0;
     reachability_error = 0;
     
-    FOR(i, P.size) FOR(j, 3) FOR(k, 5) penalty[i][j][k] = 0;
     FOR(i, P.size) {
       cell_solved[i] = 0;
       nei_solved_count[i] = 0;
@@ -211,11 +207,9 @@ struct beam_state {
   
   CUDA_FN
   u32 value(puzzle_data const& P) {
-   
     return
-      10 * total_distance
-      // + 8 * penalty_cost
-      + 1 * (nei_cost - nei_solved_penalty[6])
+      20 * total_distance
+      + 3 * (nei_cost - nei_solved_penalty[6])
       + (last_direction_src != last_direction_tgt);
   }
   
@@ -236,40 +230,6 @@ struct beam_state {
     u32 x = src_state.tok_to_pos[u];
     u32 y = tgt_state.tok_to_pos[u];
     total_distance += P.dist[x][y];
-    return;
-    auto dir = P.dist_direction[x][y];
-    if(dir[0] == 3) return;
-    if(dir[1] == 0) {
-      penalty[x][0][1] += 1;
-      penalty[x][1][1] += 1;
-      penalty[x][2][1] += 1;
-      penalty_cost += penalty[x][0][3];
-      penalty_cost += penalty[x][0][4];
-      penalty_cost += penalty[x][1][3];
-      penalty_cost += penalty[x][1][4];
-      penalty_cost += penalty[x][2][3];
-      penalty_cost += penalty[x][2][4];
-    }else if(dir[1] < 0) {
-      penalty[x][dir[0]][0] += 1;
-      penalty_cost += penalty[x][dir[0]][4];
-      auto z = x;
-      FORD(i, -1, dir[1]) {
-        z = P.data[z].data[dir[0]+3];
-        penalty[z][dir[0]][3] += 1;
-        penalty_cost += penalty[z][dir[0]][1];
-        penalty_cost += penalty[z][dir[0]][2];
-      }
-    }else if(dir[1] > 0) {
-      penalty[x][dir[0]][2] += 1;
-      penalty_cost += penalty[x][dir[0]][3];
-      auto z = x;
-      FORU(i, 1, dir[1]) {
-        z = P.data[z].data[dir[0]];
-        penalty[z][dir[0]][4] += 1;
-        penalty_cost += penalty[z][dir[0]][0];
-        penalty_cost += penalty[z][dir[0]][1];
-      }
-    }
   }
  
   FORCE_INLINE
@@ -277,40 +237,6 @@ struct beam_state {
     u32 x = src_state.tok_to_pos[u];
     u32 y = tgt_state.tok_to_pos[u];
     total_distance -= P.dist[x][y];
-    return;
-    auto dir = P.dist_direction[x][y];
-    if(dir[0] == 3) return;
-    if(dir[1] == 0) {
-      penalty[x][0][1] -= 1;
-      penalty[x][1][1] -= 1;
-      penalty[x][2][1] -= 1;
-      penalty_cost -= penalty[x][0][3];
-      penalty_cost -= penalty[x][0][4];
-      penalty_cost -= penalty[x][1][3];
-      penalty_cost -= penalty[x][1][4];
-      penalty_cost -= penalty[x][2][3];
-      penalty_cost -= penalty[x][2][4];
-    }else if(dir[1] < 0) {
-      penalty[x][dir[0]][0] -= 1;
-      penalty_cost -= penalty[x][dir[0]][4];
-      auto z = x;
-      FORD(i, -1, dir[1]) {
-        z = P.data[z].data[dir[0]+3];
-        penalty[z][dir[0]][3] -= 1;
-        penalty_cost -= penalty[z][dir[0]][1];
-        penalty_cost -= penalty[z][dir[0]][2];
-      }
-    }else if(dir[1] > 0) {
-      penalty[x][dir[0]][2] -= 1;
-      penalty_cost -= penalty[x][dir[0]][3];
-      auto z = x;
-      FORU(i, 1, dir[1]) {
-        z = P.data[z].data[dir[0]];
-        penalty[z][dir[0]][4] -= 1;
-        penalty_cost -= penalty[z][dir[0]][0];
-        penalty_cost -= penalty[z][dir[0]][1];
-      }
-    }
   }
   
   CUDA_FN
