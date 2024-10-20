@@ -85,7 +85,7 @@ struct beam_state {
   u8 last_direction_tgt;
 
   u64 hash;
-  u32 cost;
+  i32 cost;
 
   bool cell_solved[MAX_SIZE];
   u32  nei_solved_count[MAX_SIZE];

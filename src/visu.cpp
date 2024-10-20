@@ -52,10 +52,11 @@ int main(int argc, char** argv) {
     u8 m;
     if(dir == 0) {
       m = c - '1';
-      m = (m+1)%6;
+      m = (m+5)%6;
     }else{
       m = c - 'A';
-      m = (m+2)%6;
+      m = (m+1)%6;
+      m = (m+5)%6;
     }
 
     state.do_move(puzzle, m, dir);

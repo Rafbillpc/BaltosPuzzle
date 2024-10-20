@@ -2,8 +2,8 @@
 #include "header.hpp"
 
 struct weights_t {
-  f32 dist_weights[27*27];
-  f32 nei_weights[7];
+  i32 dist_weights[27*27];
+  i32 nei_weights[7];
 
   void init() {
     FOR(i, 27) FOR(j, 27) {
