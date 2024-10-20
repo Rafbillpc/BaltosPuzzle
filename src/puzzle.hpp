@@ -87,11 +87,6 @@ struct puzzle_data {
         }
       }
     }
-
-    array<i32, 2> max_pair = {0,0};
-    FOR(u, size) FOR(v, size) max_pair = max(max_pair, dist_pair[u][v]);
-    debug(max_pair);
-    
     
     FOR(i, size) {
       tgt_pos_to_tok[i] = (i == (i32)center ? 0 : (i < (i32)center ? 1+i : i));
