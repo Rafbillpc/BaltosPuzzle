@@ -15,8 +15,8 @@ struct beam_search_result {
 };
 
 beam_search_result beam_search
-(puzzle_data const& P,
- puzzle_state const& initial_state,
- u8 initial_direction,
+(puzzle_data const& puzzle,
+ weights_t const& weights,
+ beam_state initial_state,
  beam_search_config config);
 

@@ -42,12 +42,13 @@ uint64_t *HS = nullptr;
 
 vector<u8> find_solution
 (u32 goal,
- puzzle_data const& P,
- puzzle_state const& initial_state, u8 initial_direction,
+ puzzle_data const& puzzle,
+ weights_t const& weights,
+ beam_state const& initial_state, 
  i32 istep,
  euler_tour tour_current)
 {
-  beam_state S; S.reset(P, initial_state, initial_direction);
+  beam_state S = initial_state;
 
   u8 stack_moves[MAX_SOLUTION_SIZE];
   i32 nstack_moves = 0;
@@ -56,11 +57,11 @@ vector<u8> find_solution
     u8 edge = tour_current[iedge];
     if(edge > 0) {
       stack_moves[nstack_moves] = edge - 1;
-      S.do_move(P, stack_moves[nstack_moves]);
+      S.do_move(puzzle, weights, stack_moves[nstack_moves]);
       nstack_moves += 1;
     }else{
       if(nstack_moves == istep+1) {
-        auto v = S.value(P);
+        auto v = S.value();
         if(v == goal) {
           return vector<u8>(stack_moves, stack_moves + nstack_moves);
         }
@@ -71,7 +72,7 @@ vector<u8> find_solution
       }
 				
       nstack_moves -= 1;
-      S.undo_move(P, stack_moves[nstack_moves]);
+      S.undo_move(puzzle, weights, stack_moves[nstack_moves]);
     }
   }
 
@@ -79,8 +80,9 @@ vector<u8> find_solution
 }
 
 void traverse_euler_tour
-(puzzle_data const& P,
- puzzle_state const& initial_state, u8 initial_direction,
+(puzzle_data const& puzzle,
+ weights_t const& weights,
+ beam_state initial_state,
  u32 istep,
  euler_tour tour_current,
  vector<euler_tour> &tours_next,
@@ -88,7 +90,7 @@ void traverse_euler_tour
  u32 cutoff, f32 cutoff_keep_probability,
  bool save_states, f32 save_states_probability, vector<beam_state>& saved_states)
 {
-  beam_state S; S.reset(P, initial_state, initial_direction);
+  beam_state S = initial_state;
 
   u8 stack_moves[MAX_SOLUTION_SIZE];
   u32 nstack_moves = 0;
@@ -110,13 +112,13 @@ void traverse_euler_tour
     u8 edge = tour_current[iedge];
     if(edge > 0) {
       stack_moves[nstack_moves] = edge-1;
-      S.do_move(P, edge-1);
+      S.do_move(puzzle, weights, edge-1);
       stack_automaton[nstack_moves+1]
         = automaton::next_state[stack_automaton[nstack_moves]][edge-1];
       nstack_moves += 1;
     }else{
       if(nstack_moves == istep) {
-        auto v = S.value(P);
+        auto v = S.value();
         bool keep = v < cutoff;
         if(v == cutoff) {
           cutoff_running += cutoff_keep_probability;
@@ -145,7 +147,7 @@ void traverse_euler_tour
           FOR(m, 12) {
             ks[m] = 0;
             if(automaton::allow_move[stack_automaton[istep]] & bit(m)) {
-              auto [v,h] = S.plan_move(P, m);
+              auto [v,h] = S.plan_move(puzzle, weights, m);
               if(v <= cutoff) {
                 auto prev = HS[h&HASH_MASK];
                 if(prev != h) {
@@ -178,7 +180,7 @@ void traverse_euler_tour
       }
 				
       nstack_moves -= 1;
-      S.undo_move(P, stack_moves[nstack_moves]);
+      S.undo_move(puzzle, weights, stack_moves[nstack_moves]);
     }
     
     if(__builtin_expect(tour_next->size + 2 * istep + 128 > tree_size, false)) {
@@ -195,18 +197,19 @@ void traverse_euler_tour
 }
 
 beam_search_result beam_search
-(puzzle_data const& P,
- puzzle_state const& initial_state,
- u8 initial_direction,
+(puzzle_data const& puzzle,
+ weights_t const& weights,
+ beam_state initial_state,
  beam_search_config config)
 {
+  initial_state.reinit(puzzle, weights);
+  
   if(!HS) {
     auto ptr = new uint64_t[HASH_SIZE];
     HS = ptr;
   }
 
-  beam_state S; S.reset(P, initial_state, initial_direction);
-  i32 max_score = S.value(P) * 2 + 1000;
+  i32 max_score = initial_state.value() * 2 + 1000;
   debug(max_score);
   vector<u64> histogram(max_score+1, 0);
   
@@ -262,7 +265,7 @@ beam_search_result beam_search
         if(tour_current.size == 0) break;
 
         traverse_euler_tour
-          (P, initial_state, initial_direction,
+          (puzzle, weights, initial_state,
            istep,
            tour_current, 
            L_tours_next, 
@@ -346,7 +349,7 @@ beam_search_result beam_search
           if(tour_current.size == 0) break;
           
           auto lsolution = find_solution
-            (low, P, initial_state, initial_direction,
+            (low, puzzle, weights, initial_state,
              istep,
              tour_current);
           if(!lsolution.empty()) {

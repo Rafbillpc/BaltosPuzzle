@@ -17,8 +17,9 @@ struct puzzle_data {
   u32 center;
 
   puzzle_rot data[MAX_SIZE];
-  i32 dist[MAX_SIZE][MAX_SIZE];
-  array<i32, 2> dist_pair[MAX_SIZE][MAX_SIZE];
+  u32 dist[MAX_SIZE][MAX_SIZE];
+  array<u32, 2> dist_pair[MAX_SIZE][MAX_SIZE];
+  u32 dist_key[MAX_SIZE][MAX_SIZE];
 
   array<i32, 2> to_coord[MAX_SIZE];
   map<array<i32, 2>, u32> from_coord;
@@ -75,9 +76,10 @@ struct puzzle_data {
 
               i32 di = dx+dy;
 
-              if(di < dist[u][w]) {
+              if(di < (i32)dist[u][w]) {
                 dist[u][w] = di;
-                dist_pair[u][w] = {max(dx, dy), min(dx, dy)};
+                dist_pair[u][w] = {max<u32>(dx, dy), min<u32>(dx, dy)};
+                dist_key[u][w] = max<u32>(dx, dy) * 27 + min<u32>(dx,dy);
               }
               
               w = data[w].data[y];

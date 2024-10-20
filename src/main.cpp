@@ -4,7 +4,7 @@
 #include "beam_search.hpp"
 #include <omp.h>
 
-void solve(puzzle_data const& P,
+void solve(puzzle_data const& puzzle,
            puzzle_state initial_state,
            u8 initial_directions,
            i64 width) {
@@ -13,9 +13,15 @@ void solve(puzzle_data const& P,
     .save_states = false,
     .save_states_probability = 0.0,
   };
+
+  weights_t weights;
+  weights.init();
+
+  beam_state state;
+  state.reset(puzzle, weights, initial_state, initial_directions);
   
   auto result = beam_search
-    (P, initial_state, initial_directions, config);
+    (puzzle, weights, state, config);
   auto solution = result.solution;
   
   vector<char> L, R;
@@ -47,10 +53,10 @@ void solve(puzzle_data const& P,
   L.insert(end(L),all(R));
 
   auto cost = L.size();
-  auto filename = "solutions/" + to_string(P.n) + "/" + to_string(cost); 
+  auto filename = "solutions/" + to_string(puzzle.n) + "/" + to_string(cost); 
   
   ofstream out(filename);
-  out << P.n << ":";
+  out << puzzle.n << ":";
   for(auto c : L) {
     out << c;
   }
