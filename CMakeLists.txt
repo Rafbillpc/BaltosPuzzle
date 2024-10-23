@@ -39,11 +39,12 @@ endif()
 find_package(OpenMP REQUIRED)
 
 add_subdirectory(external/indicators)
+add_subdirectory(external/argparse)
 
 # Common
 add_library(common
   src/header.cpp
-  src/beam_state.cpp
+  src/puzzle.cpp
   src/beam_search.cpp
 )
 target_include_directories(common PUBLIC
@@ -51,28 +52,29 @@ target_include_directories(common PUBLIC
 target_link_libraries(common PUBLIC
   OpenMP::OpenMP_CXX
   indicators::indicators
+  argparse::argparse
 )
 target_precompile_headers(common PRIVATE src/header.hpp)
 
-# Solver
-add_executable(solver
+# Main
+add_executable(main
   src/main.cpp
 )
-target_link_libraries(solver PUBLIC common)
-target_precompile_headers(solver REUSE_FROM common)
+target_link_libraries(main PUBLIC common)
+target_precompile_headers(main REUSE_FROM common)
 
-# Visu
-add_executable(visu
-  src/visu.cpp
-)
-target_link_libraries(visu PUBLIC common)
-target_precompile_headers(visu REUSE_FROM common)
+# # Visu
+# add_executable(visu
+#   src/visu.cpp
+# )
+# target_link_libraries(visu PUBLIC common)
+# target_precompile_headers(visu REUSE_FROM common)
 
-# Train
-add_executable(train
-  src/train.cpp
-)
-target_link_libraries(train PUBLIC common)
-target_precompile_headers(train REUSE_FROM common)
+# # Train
+# add_executable(train
+#   src/train.cpp
+# )
+# target_link_libraries(train PUBLIC common)
+# target_precompile_headers(train REUSE_FROM common)
 
 

@@ -1,86 +1,51 @@
-#include "beam_state.hpp"
 #include "header.hpp"
-#include "puzzle.hpp"
 #include "beam_search.hpp"
+#include "puzzle.hpp"
 #include <omp.h>
 
-void solve(puzzle_data const& puzzle,
-           puzzle_state initial_state,
-           u8 initial_directions,
-           i64 width) {
-  beam_search_config config {
-    .width = (u64)width,
-    .save_states = false,
-    .save_states_probability = 0.0,
-  };
-
-  weights_t weights;
-  weights.init();
-
-  beam_state state;
-  state.reset(puzzle, weights, initial_state, initial_directions);
-  
-  auto result = beam_search
-    (puzzle, weights, state, config);
-  auto solution = result.solution;
-  
-  vector<char> L, R;
-  u8 last_direction_src = (initial_directions >> 0 & 1);
-  u8 last_direction_tgt = (initial_directions >> 1 & 1); 
-  for(auto m : solution) {
-    if(m < 6) {
-      if(last_direction_src == 0) {
-        L.pb('1'+(m+1)%6);
-      }else{
-        L.pb('A'+(m+6)%6);
-      }
-      
-      last_direction_src ^= 1;
-    }else{
-      m -= 6;
-
-      if(last_direction_tgt == 0) {
-        R.pb('A'+(m+3)%6);
-      }else{
-        R.pb('1'+(m+4)%6);
-      }
-      
-      last_direction_tgt ^= 1;
-    }
-  }
-
-  reverse(all(R));
-  L.insert(end(L),all(R));
-
-  auto cost = L.size();
-  auto filename = "solutions/" + to_string(puzzle.n) + "/" + to_string(cost); 
-  
-  ofstream out(filename);
-  out << puzzle.n << ":";
-  for(auto c : L) {
-    out << c;
-  }
-  out << endl;
-  out.close();
-}
+struct training_sample {
+  vector<i32> features;
+  i32         goal;
+};
 
 int main(int argc, char** argv) {
-  runtime_assert(argc == 4);
+  puzzle.make(4);
 
-  i64 sz = atoi(argv[1]);
-  i64 width = atoll(argv[2]);
-  i32 initial_directions = atoi(argv[3]);
-  debug(sz, width);
+  FOR(u, puzzle.size) FOR(v, puzzle.size) {
+    weights.dist_weight[u][v] = 10 * puzzle.dist[u][v];
+  }
   
-  automaton::init();
-  reachability.init();
-  
-  auto C = load_configurations();
+  unique_ptr<beam_search> search = make_unique<beam_search>(beam_search_config {
+      .print = false,
+      .width = 1<<10,
+    });
 
-  runtime_assert(C.count(sz));
-  unique_ptr<puzzle_data> P = make_unique<puzzle_data>();
-  P->make(sz);
-  solve(*P, C[sz], initial_directions, width);
+  vector<training_sample> samples;
+  
+  while(1) {
+    auto seed = rng.randomInt32();
+    debug(seed);
+    puzzle_state src;
+    src.generate(seed);
+
+    beam_state state;
+    state.src = src;
+    state.src.direction = rng.random32(2);
+    state.tgt.set_tgt();
+    state.tgt.direction = rng.random32(2);
+    state.init();
+    
+    auto result = search->search(state);
+
+    auto size = result.solution.size();
+    FOR(i, size) {
+      // sample.pb(training_sample {
+      //   .features = state.features(),
+      //   .goal = size - i,
+      // });
+      state.do_move(result.solution[i]);
+    }
+  }
 
   return 0;
 }

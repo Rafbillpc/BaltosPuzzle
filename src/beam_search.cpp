@@ -1,28 +1,22 @@
-#include "beam_state.hpp"
 #include "beam_search.hpp"
-#include <omp.h>
+#include <mutex>
+
+weights_t weights;
+
+const u64 HASH_SIZE = 1ull<<25;
+const u64 HASH_MASK = HASH_SIZE-1;
 
 const i64 MIN_TREE_SIZE = 1<<17;
 i64 tree_size = MIN_TREE_SIZE;
 
-using euler_tour_edge = u8;
-struct euler_tour {
-  i64 max_size;
-  i64 size;
-  euler_tour_edge* data;
-  
-  FORCE_INLINE void reset() { size = 0; }
-  FORCE_INLINE void push(i32 x) {
-    data[size++] = x;
-  }
-  FORCE_INLINE u8& operator[](i32 ix) { return data[ix]; }
-};
-  
+mutex bs_mutex;
+
 vector<euler_tour> tree_pool;
+
 euler_tour get_new_tree(){
   euler_tour tour;
-#pragma omp critical
-  {
+
+  { lock_guard<mutex> lock(bs_mutex);
     if(tree_pool.empty()) {
       tour.max_size = tree_size;
       tour.size = 0;
@@ -33,88 +27,82 @@ euler_tour get_new_tree(){
       tree_pool.pop_back();
     }
   }
+
   return tour;
 }
 
-const u64 HASH_SIZE = 1ull<<30;
-const u64 HASH_MASK = HASH_SIZE-1;
-uint64_t *HS = nullptr;
+void free_tree(euler_tour tree) {
+  lock_guard<mutex> lock(bs_mutex);
+  tree_pool.pb(tree);
+}
 
-vector<u8> find_solution
-(u32 goal,
- puzzle_data const& puzzle,
- weights_t const& weights,
- beam_state const& initial_state, 
- i32 istep,
- euler_tour tour_current)
+
+void find_solution
+(vector<u8> &solution,
+ u32 istep,
+ beam_state S,
+ euler_tour const& tour_current
+ )
 {
-  beam_state S = initial_state;
-
-  u8 stack_moves[MAX_SOLUTION_SIZE];
-  i32 nstack_moves = 0;
+  vector<u8> stack_moves(istep);
+  u32 nstack_moves = 0;
 
   FOR(iedge, tour_current.size) {
     u8 edge = tour_current[iedge];
     if(edge > 0) {
-      stack_moves[nstack_moves] = edge - 1;
-      S.do_move(puzzle, weights, stack_moves[nstack_moves]);
+      stack_moves[nstack_moves] = edge-1;
+      S.do_move(edge-1);
       nstack_moves += 1;
     }else{
-      if(nstack_moves == istep+1) {
+      if(nstack_moves == istep) {
         auto v = S.value();
-        if(v == goal) {
-          return vector<u8>(stack_moves, stack_moves + nstack_moves);
+        if(v == 0) {
+          solution = stack_moves;
+          return;
         }
       }
-
+        
       if(nstack_moves == 0) {
-        return {};
+        break;
       }
 				
       nstack_moves -= 1;
-      S.undo_move(puzzle, weights, stack_moves[nstack_moves]);
+      S.undo_move(stack_moves[nstack_moves]);
     }
   }
-
-  runtime_assert(false);
 }
 
-void traverse_euler_tour
-(puzzle_data const& puzzle,
- weights_t const& weights,
- beam_state initial_state,
- u32 istep,
- euler_tour tour_current,
- vector<euler_tour> &tours_next,
- u64* histogram, u32& out_low, u32& out_high,
- u32 cutoff, f32 cutoff_keep_probability,
- bool save_states, f32 save_states_probability, vector<beam_state>& saved_states)
+
+
+void beam_search_instance::traverse_tour
+(beam_state S,
+ euler_tour const& tour_current,
+ vector<euler_tour> &tours_next
+ )
 {
-  beam_state S = initial_state;
-
-  u8 stack_moves[MAX_SOLUTION_SIZE];
   u32 nstack_moves = 0;
-  
-  u32 stack_automaton[MAX_SOLUTION_SIZE];
-  stack_automaton[0] = 6*6+6;
-
+  stack_last_move_src[0] = 12;
+  stack_last_move_tgt[0] = 12;
+ 
   u32 ncommit = 0;
   if(tours_next.empty()) tours_next.eb(get_new_tree());
   auto *tour_next = &tours_next.back(); 
   runtime_assert(tour_next->max_size == tree_size);
 
-  f32 save_states_running = 1.0;
-  f32 cutoff_running = 1.0;
+  f32 cutoff_running = 1.0 + rng.randomDouble();
 
-  u32 low = out_low, high = out_high;
-  
   FOR(iedge, tour_current.size) {
     u8 edge = tour_current[iedge];
     if(edge > 0) {
       stack_moves[nstack_moves] = edge-1;
-      S.do_move(puzzle, weights, edge-1);
-      stack_automaton[nstack_moves+1]
-        = automaton::next_state[stack_automaton[nstack_moves]][edge-1];
+      S.do_move(edge-1);
+      if(edge-1 < 6) {
+        stack_last_move_src[nstack_moves+1] = edge-1;
+        stack_last_move_tgt[nstack_moves+1] = stack_last_move_tgt[nstack_moves];
+      }else{
+        stack_last_move_src[nstack_moves+1] = stack_last_move_src[nstack_moves];
+        stack_last_move_tgt[nstack_moves+1] = edge-1;
+      }
       nstack_moves += 1;
     }else{
       if(nstack_moves == istep) {
@@ -128,45 +116,27 @@ void traverse_euler_tour
           }
         }
         if(keep) {
-          if(save_states) {
-            save_states_running += save_states_probability;
-            if(save_states_running > 1.0) {
-              saved_states.pb(S);
-              save_states_running -= 1.0;
-            }
-          }
           
           while(ncommit < nstack_moves) {
             tour_next->push(1+stack_moves[ncommit]);
             ncommit += 1;
           }
 
-          bool ks[12];
-          u32  vs[12];
-          
-          FOR(m, 12) {
-            ks[m] = 0;
-            if(automaton::allow_move[stack_automaton[istep]] & bit(m)) {
-              auto [v,h] = S.plan_move(puzzle, weights, m);
-              if(v <= cutoff) {
-                auto prev = HS[h&HASH_MASK];
-                if(prev != h) {
-                  HS[h&HASH_MASK] = h;
-                  ks[m] = 1;
-                  vs[m] = v;
-                }
+          FOR(m, 12) if(m != stack_last_move_src[nstack_moves] &&
+                        m != stack_last_move_tgt[nstack_moves]) {
+            auto [v,h] = S.plan_move(m);
+            if(v <= cutoff) {
+              auto prev = hash_table[h&HASH_MASK];
+              if(prev != h) {
+                hash_table[h&HASH_MASK] = h;
+                low = min(low, v);
+                high = max(high, v);
+                histogram[v] += 1;
+                tour_next->push(1+m);
+                tour_next->push(0);
               }
             }
           }
-
-          FOR(m, 12) if(ks[m]) {
-            low = min(low, vs[m]);
-            high = max(high, vs[m]);
-            histogram[vs[m]] += 1;
-            tour_next->push(1+m);
-            tour_next->push(0);
-          }
-          
         }
       }
 
@@ -180,7 +150,7 @@ void traverse_euler_tour
       }
 				
       nstack_moves -= 1;
-      S.undo_move(puzzle, weights, stack_moves[nstack_moves]);
+      S.undo_move(stack_moves[nstack_moves]);
     }
     
     if(__builtin_expect(tour_next->size + 2 * istep + 128 > tree_size, false)) {
@@ -191,119 +161,59 @@ void traverse_euler_tour
       ncommit = 0;
     }
   }
-
-  out_low = low;
-  out_high = high;
 }
 
-beam_search_result beam_search
-(puzzle_data const& puzzle,
- weights_t const& weights,
- beam_state initial_state,
- beam_search_config config)
-{
-  initial_state.reinit(puzzle, weights);
-  
-  if(!HS) {
-    auto ptr = new uint64_t[HASH_SIZE];
-    HS = ptr;
-  }
+beam_search::beam_search(beam_search_config config_) {
+  config = config_;
+  hash_table.assign(HASH_SIZE, rng.randomInt64());
+}
 
-  i32 max_score = initial_state.value() * 2 + 1000;
-  debug(max_score);
-  vector<u64> histogram(max_score+1, 0);
-  
+beam_search::~beam_search() {
+}
+
+beam_search_result
+beam_search::search(beam_state const& initial_state) {
+  u32 max_score = initial_state.value() * 1.2 + 1024;
+  if(histogram.size() < max_score) histogram.resize(max_score);
+
   vector<euler_tour> tours_current;
   tours_current.eb(get_new_tree());
   tours_current.back().push(0);
-	
-  i32   cutoff = max_score;
+
+  u32 cutoff = max_score;
   f32 cutoff_keep_probability = 1.0;
 
-  i32 num_threads = omp_get_max_threads();
-  debug(num_threads);
-
-  vector<vector<u64>> L_histograms(num_threads, vector<u64>(max_score+1, 0));
-  vector<vector<beam_state>> L_saved_states(num_threads);
-
-  for(i32 istep = 0;; ++istep) {
+  u32 low = max_score, high = 0;
+  
+  for(u32 istep = 0;; ++istep) {
     timer timer_s;
-    vector<euler_tour> tours_next;
 
-    bool increased_tree_size = false;
-    if(tours_current.size() > 256) {
-      for(auto &t : tree_pool) delete[] t.data;
-      tree_pool.clear();
-      tree_size *= 2;
-      increased_tree_size = true;
-    }
-
-    sort(all(tours_current), [&](auto const& t1, auto const& t2) {
-      return t1.size < t2.size;
-    });
-
-    u32 low = max_score, high = 0;
-    
-#pragma omp parallel
     {
-      auto thread_id = omp_get_thread_num();
-      vector<u64>& L_histogram = L_histograms[thread_id];
-      vector<euler_tour> L_tours_next;
+      vector<euler_tour> tours_next;
       
-      u32 L_low = max_score, L_high = 0;
-      
-      while(1) {
-        euler_tour tour_current;
-#pragma omp critical
-        { if(!tours_current.empty()) {
-            tour_current = tours_current.back();
-            tours_current.pop_back();
-          }else{
-            tour_current.size = 0;
-          }
-        }
-        if(tour_current.size == 0) break;
+      for(auto tour_current : tours_current) {
+        instance.hash_table = hash_table.data();
+        instance.histogram = histogram.data();
+        instance.istep = istep;
+        instance.cutoff = cutoff;
+        instance.cutoff_keep_probability = cutoff_keep_probability;
+        instance.low = max_score;
+        instance.high = 0;
+        instance.traverse_tour(initial_state, tour_current, tours_next);
 
-        traverse_euler_tour
-          (puzzle, weights, initial_state,
-           istep,
-           tour_current, 
-           L_tours_next, 
-           L_histogram.data(), L_low, L_high,
-           cutoff, cutoff_keep_probability,
-           config.save_states, config.save_states_probability, L_saved_states[thread_id]
-           );
-
-        #pragma omp critical
-        {
-          if(!increased_tree_size) {
-            tree_pool.eb(tour_current);
-          }else{
-            delete[] tour_current.data;
-          }
-        }
+        free_tree(tour_current);
+        low = min(low, instance.low);
+        high = max(high, instance.high);
       }
-#pragma omp critical
-      { if(!L_tours_next.empty()) {
-          L_tours_next.back().push(0);
-        }
-        while(!L_tours_next.empty()) {
-          tours_next.eb(L_tours_next.back());
-          L_tours_next.pop_back();
-        }
-        FORU(i,L_low,L_high) histogram[i] += L_histogram[i];
-        FORU(i,L_low,L_high) L_histogram[i] = 0;
-        low = min(low, L_low);
-        high = max(high, L_high);
-      }
+      tours_current = tours_next;
     }
-
+    
     f64 average_score = 0;
     { u64 total_count = 0;
       cutoff = max_score;
       cutoff_keep_probability = 1.0;
       FORU(i, low, high) {
-        if(total_count+histogram[i] > config.width) {
+        if(total_count + histogram[i] > config.width) {
           average_score += i * (config.width-total_count);
           cutoff = i;
           cutoff_keep_probability = (f32)(config.width-total_count) / (f32)(histogram[i]);
@@ -315,64 +225,33 @@ beam_search_result beam_search
       }
       FORU(i, low, high) histogram[i] = 0;
       average_score /= max<f64>(1, total_count);
-       
     }
 
     i64 total_size = 0;
-    for(auto const& t : tours_next) total_size += t.size;
-    
-    cerr << setw(6) << istep+1 <<
-      ": scores = " << setw(3) << low << ".." << setw(3) << cutoff <<
-      ": avg = " << fixed << setprecision(2) << average_score << 
-      ", tree size = " << setw(11) << total_size <<
-      ", num trees = " << setw(4) << tours_next.size() <<
-      ", elapsed = " << setw(10) << fixed << setprecision(5) << timer_s.elapsed() << "s" <<
-      endl;
+    for(auto tour : tours_current) {
+      total_size += tour.size;
+    }
 
-    tours_current = tours_next;
+    if(config.print) {
+      cerr << setw(6) << istep+1 <<
+        ": low..cut = " << setw(3) << low << ".." << setw(3) << cutoff <<
+        ": avg = " << fixed << setprecision(2) << average_score << 
+        ", tree size = " << setw(11) << total_size <<
+        ", elapsed = " << setw(10) << fixed << setprecision(5) << timer_s.elapsed() << "s" <<
+        endl;
+    }
 
     if(low == 0) {
       vector<u8> solution;
       
-#pragma omp parallel
-      {
-        while(1) {
-          euler_tour tour_current;
-#pragma omp critical
-          { if(!tours_current.empty()) {
-              tour_current = tours_current.back();
-              tours_current.pop_back();
-            }else{
-              tour_current.size = 0;
-            }
-          }
-          if(tour_current.size == 0) break;
-          
-          auto lsolution = find_solution
-            (low, puzzle, weights, initial_state,
-             istep,
-             tour_current);
-          if(!lsolution.empty()) {
-            #pragma omp critical
-            {
-              solution = lsolution;
-            }
-          }
-        }
+      for(auto tour_current : tours_current) {
+        find_solution(solution, istep+1, initial_state, tour_current);
+        if(!solution.empty()) break;
       }
 
-      vector<beam_state> saved_states;
-      FOR(i, num_threads) {
-        saved_states.insert(end(saved_states), all(L_saved_states[i]));
-      }
-      
-      beam_search_result result {
+      return beam_search_result {
         .solution = solution,
-        .saved_states = saved_states,
       };
-
-      return result;
     }
-
   }
 }
