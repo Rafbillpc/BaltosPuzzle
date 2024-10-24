@@ -1,4 +1,5 @@
 #include "beam_search.hpp"
+#include "puzzle.hpp"
 #include <mutex>
 
 weights_t weights;
@@ -77,13 +78,15 @@ void find_solution
 void beam_search_instance::traverse_tour
 (beam_state S,
  euler_tour const& tour_current,
- vector<euler_tour> &tours_next
+ vector<euler_tour> &tours_next,
+ i32 &count,
+ vector<i32> &features
  )
 {
   u32 nstack_moves = 0;
   stack_last_move_src[0] = 12;
   stack_last_move_tgt[0] = 12;
- 
+
   u32 ncommit = 0;
   if(tours_next.empty()) tours_next.eb(get_new_tree());
   auto *tour_next = &tours_next.back(); 
@@ -116,6 +119,11 @@ void beam_search_instance::traverse_tour
           }
         }
         if(keep) {
+
+          count += 1;
+          if(rng.random32(count) == 0) {
+            features = S.features();
+          }
           
           while(ncommit < nstack_moves) {
             tour_next->push(1+stack_moves[ncommit]);
@@ -184,10 +192,20 @@ beam_search::search(beam_state const& initial_state) {
   f32 cutoff_keep_probability = 1.0;
 
   u32 low = max_score, high = 0;
+
+  vector<vector<i32>> features;
   
   for(u32 istep = 0;; ++istep) {
+    if(istep > MAX_SOLUTION_SIZE - 10) {
+      debug("FAIL");
+      return beam_search_result{};
+    }
+    
     timer timer_s;
 
+    i32 count = 0;
+    features.eb();
+    
     {
       vector<euler_tour> tours_next;
       
@@ -199,7 +217,8 @@ beam_search::search(beam_state const& initial_state) {
         instance.cutoff_keep_probability = cutoff_keep_probability;
         instance.low = max_score;
         instance.high = 0;
-        instance.traverse_tour(initial_state, tour_current, tours_next);
+        instance.traverse_tour(initial_state, tour_current, tours_next,
+                               count, features.back());
 
         free_tree(tour_current);
         low = min(low, instance.low);
@@ -251,6 +270,7 @@ beam_search::search(beam_state const& initial_state) {
 
       return beam_search_result {
         .solution = solution,
+        .features = features,
       };
     }
   }

@@ -14,6 +14,8 @@ struct puzzle_data {
 
   u32 rot[MAX_SIZE][6];
   u32 dist[MAX_SIZE][MAX_SIZE];
+  array<i32, 2> dist_delta[MAX_SIZE][MAX_SIZE];
+  u32 dist_key[MAX_SIZE][MAX_SIZE];
   
   array<i32, 2> to_coord[MAX_SIZE];
   map<array<i32, 2>, u32> from_coord;
@@ -21,6 +23,8 @@ struct puzzle_data {
   i32 tgt_tok_to_pos[MAX_SIZE];
   i32 tgt_pos_to_tok[MAX_SIZE];
 
+  u32 num_features;
+  
   void make(i32 n);
 };
 
@@ -30,6 +34,8 @@ struct puzzle_state {
   u32 pos_to_tok[MAX_SIZE];
   u32 tok_to_pos[MAX_SIZE];
   u8  direction = 0;
+
+  bool get_parity() const;
   
   void set_tgt();
   void print() const;

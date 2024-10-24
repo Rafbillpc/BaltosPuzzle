@@ -148,6 +148,16 @@ struct beam_state {
   u32 value() const {
     return cost;
   }
+
+  vector<i32> features() const {
+    vector<i32> V(puzzle.size, 0);
+    FORU(u, 1, puzzle.size-1) {
+      u32 x = src.tok_to_pos[u];
+      u32 y = tgt.tok_to_pos[u];
+      V[puzzle.dist_key[x][y]] += 1;
+    }
+    return V;
+  }
 };
 
 using euler_tour_edge = u8;
@@ -187,11 +197,15 @@ struct beam_search_instance {
   void traverse_tour
   (beam_state S,
    euler_tour const& tour_current,
-   vector<euler_tour> &tour_nexts);
+   vector<euler_tour> &tour_nexts,
+   i32 &count,
+   vector<i32>& features
+   );
 };
 
 struct beam_search_result {
   vector<u8> solution;
+  vector<vector<i32>> features;
 };
 
 struct beam_search {

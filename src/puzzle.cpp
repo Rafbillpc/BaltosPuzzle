@@ -44,11 +44,17 @@ void puzzle_data::make(i32 n_) {
 
             i32 di = dx+dy;
 
-            // i32 delta_u = dx * du[x] + dy * du[y];
-            // i32 delta_v = dx * dv[x] + dy * dv[y];
+            i32 delta_u = dx * du[x] + dy * du[y];
+            i32 delta_v = dx * dv[x] + dy * dv[y];
 
             if(di < (i32)dist[u][w]) {
               dist[u][w] = di;
+              dist_delta[u][w] = {delta_u, delta_v};
+
+              i32 a = max(dx, dy);
+              i32 b = min(dx, dy);
+              
+              dist_key[u][w] = a*(a+1)/2 + b;
             }
               
             w = rot[w][y];
@@ -58,13 +64,22 @@ void puzzle_data::make(i32 n_) {
       }
     }
   }
-    
+
+  // FOR(i, size) FOR(j, size) {
+  //   auto [u,v] = dist_delta[i][j];
+  //   array<i32, 2> key = {u, v};
+  //   runtime_assert(from_coord.count(key));
+  //   dist_key[i][j] = from_coord[key];
+  // }
+  
   FOR(i, size) {
     tgt_pos_to_tok[i] = (i == (i32)center ? 0 : (i < (i32)center ? 1+i : i));
   }
   FOR(i, size) {
     tgt_tok_to_pos[tgt_pos_to_tok[i]] = i;
   }
+
+  num_features = (n+1) * n / 2;
 }
 
 void puzzle_state::set_tgt() {
@@ -95,25 +110,33 @@ void puzzle_state::print() const {
   }
 }
 
+bool puzzle_state::get_parity() const {
+  bool parity = 0;
+  vector<u32> vis(puzzle.size, 0);
+  FOR(i, puzzle.size) if(!vis[i]) {
+    u32 sz = 0;
+    for(u32 j = i; !vis[j]; j = pos_to_tok[j]) {
+      vis[j] = 1;
+      sz += 1;
+    }
+    parity ^= ((sz+1) & 1);
+  }
+  return parity;
+}
+
 void puzzle_state::generate(u64 seed) {
   RNG rng; rng.reset(seed);
 
+  set_tgt();
+  u32 goal_parity = get_parity();
+  
   while(1) {
     FOR(i, puzzle.size) pos_to_tok[i] = i;
     rng.shuffle(pos_to_tok, pos_to_tok + puzzle.size);
     FOR(i, puzzle.size) tok_to_pos[pos_to_tok[i]] = i;
 
-    u32 parity = 0;
-    vector<u32> vis(puzzle.size, 0);
-    FOR(i, puzzle.size) if(!vis[i]) {
-      u32 sz = 0;
-      for(u32 j = i; !vis[j]; j = pos_to_tok[j]) {
-        vis[j] = 1;
-        sz += 1;
-      }
-      parity ^= ((sz+1) & 1);
-    }
-    if(parity == 0) break;
+    u32 parity = get_parity();
+    if(parity == goal_parity) break;
   }
 }
 
