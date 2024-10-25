@@ -13,9 +13,9 @@ vector<training_sample> gather_samples() {
 #pragma omp parallel
   {
     unique_ptr<beam_search> search = make_unique<beam_search>(beam_search_config {
-        .print = true,
+        .print = false,
         .print_interval = 1000,
-        .width = 1<<12,
+        .width = 1<<10,
         .features_save_probability = 0.001,
       });
 
@@ -64,7 +64,7 @@ vector<training_sample> gather_samples() {
           }
         }
 
-        if(samples.size() > 1'000'000) should_stop = 1;
+        if(samples.size() > 500'000) should_stop = 1;
       }
 
       if(should_stop) break;
@@ -173,15 +173,6 @@ void update_weights(vector<training_sample> const& samples) {
 
     if(max_delta < 1e-4) break;
   }
-
-  FOR(u, puzzle.n) {
-    FOR(v, u+1) if(u+v < puzzle.n) {
-      cerr << setw(5) << setprecision(2) << fixed
-           << w[u*(u+1)/2 + v] << " ";
-    }
-    cerr << endl;
-  }
-
   
   runtime_assert(w[1] > 0.01);
   {
@@ -192,6 +183,10 @@ void update_weights(vector<training_sample> const& samples) {
              << w[dist_feature_key[u][v]] / w[1] << " ";
       }
       cerr << endl;
+    }
+    FOR(i, NUM_FEATURES_NEI) {
+      cerr << setw(5) << setprecision(2) << fixed
+           << w[NUM_FEATURES_DIST + i] / w[1] << " ";
     }
   }
 

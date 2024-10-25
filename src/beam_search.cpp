@@ -54,8 +54,7 @@ void find_solution
       nstack_moves += 1;
     }else{
       if(nstack_moves == istep) {
-        auto v = S.value();
-        if(v == 0) {
+        if(S.is_solved()) {
           solution = stack_moves;
           return;
         }
@@ -129,11 +128,12 @@ void beam_search_instance::traverse_tour
 
           FOR(m, 12) if(m != stack_last_move_src[nstack_moves] &&
                         m != stack_last_move_tgt[nstack_moves]) {
-            auto [v,h] = S.plan_move(m);
+            auto [v,h,solved] = S.plan_move(m);
             if(1 || v <= cutoff) {
               auto prev = hash_table[h&HASH_MASK];
               if(prev != h) {
                 hash_table[h&HASH_MASK] = h;
+                if(solved) found_solution = true;
                 low = min(low, v);
                 high = max(high, v);
                 histogram[v] += 1;
@@ -188,8 +188,6 @@ beam_search::search(beam_state const& initial_state) {
   u32 cutoff = max_score;
   f32 cutoff_keep_probability = 1.0;
 
-  u32 low = max_score, high = 0;
-
   vector<tuple<i32, features_vec > > saved_features;
   
   for(u32 istep = 0;; ++istep) {
@@ -200,6 +198,9 @@ beam_search::search(beam_state const& initial_state) {
     
     timer timer_s;
 
+    u32 low = max_score, high = 0;
+    bool found_solution = false;
+    
     {
       vector<euler_tour> tours_next;
       
@@ -211,6 +212,7 @@ beam_search::search(beam_state const& initial_state) {
         instance.cutoff_keep_probability = cutoff_keep_probability;
         instance.low = max_score;
         instance.high = 0;
+        instance.found_solution = false;
         instance.saved_features = &saved_features;
         
         instance.traverse_tour(config, initial_state, tour_current, tours_next);
@@ -218,6 +220,7 @@ beam_search::search(beam_state const& initial_state) {
         free_tree(tour_current);
         low = min(low, instance.low);
         high = max(high, instance.high);
+        found_solution = found_solution || instance.found_solution;
       }
       tours_current = tours_next;
     }
@@ -258,7 +261,7 @@ beam_search::search(beam_state const& initial_state) {
       }
     }
 
-    if(low == 0) {
+    if(found_solution) {
       vector<u8> solution;
       
       for(auto tour_current : tours_current) {

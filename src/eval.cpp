@@ -32,6 +32,7 @@ const f32 initial_dist_heuristic[NUM_FEATURES_DIST] =
   };
 
 u32 dist_feature_key[27][27];
+u32 nei_feature_key[1<<7];
 weights_t weights;
 
 void weights_t::init(){
@@ -39,13 +40,30 @@ void weights_t::init(){
     dist_weight[u][v] =
       64 * initial_dist_heuristic[puzzle.dist_feature[u][v]];
   }
+
+  FOR(i, bit(7)) {
+    nei_weight[i] = 0;
+  }
 }
 
 void init_eval() {
   i32 next_feature = 0;
   FOR(x, 27) FOR(y, x+1) if(x+y < 27) {
-    if(next_feature == 56) debug(x,y);
     dist_feature_key[x][y] = next_feature++;
   }
   runtime_assert(next_feature == NUM_FEATURES_DIST);
+
+  FOR(mask, bit(7)) {
+    i32 min_mask = mask;
+    FOR(s, 7) {
+      i32 rotated_mask = ((mask<<s)|(mask>>(7-s))) & (bit(7)-1);
+      if(rotated_mask < min_mask) min_mask = rotated_mask;
+    }
+    if(mask == min_mask) {
+      nei_feature_key[mask] = next_feature++;
+    }else{
+      nei_feature_key[mask] = nei_feature_key[min_mask];
+    }
+  }
+  runtime_assert(next_feature == NUM_FEATURES_DIST + NUM_FEATURES_NEI);
 }
