@@ -1,4 +1,5 @@
 #include "training.hpp"
+#include "eval.hpp"
 
 vector<training_sample> gather_samples() {
   vector<training_sample> samples;
@@ -14,11 +15,11 @@ vector<training_sample> gather_samples() {
     unique_ptr<beam_search> search = make_unique<beam_search>(beam_search_config {
         .print = true,
         .print_interval = 1000,
-        .width = 1<<10,
+        .width = 1<<12,
         .features_save_probability = 0.001,
       });
 
-    FOR(step, 1) {
+    while(1) {
       u64 seed;
 #pragma omp critical
       {
@@ -68,10 +69,6 @@ vector<training_sample> gather_samples() {
 
       if(should_stop) break;
     }
-    #pragma omp critical
-    {
-      debug("DONE", omp_get_thread_num());
-    }
   }
 
   {
@@ -89,19 +86,18 @@ vector<training_sample> gather_samples() {
 }
 
 void update_weights(vector<training_sample> const& samples) {
-  i32 num_features = puzzle.num_features;
-  vector<f64> w(num_features);
+  vector<f64> w(NUM_FEATURES, 0.0);
   FOR(u, puzzle.size) FOR(v, puzzle.size) {
     w[puzzle.dist_feature[u][v]] = (f64)weights.dist_weight[u][v] / 64.0;
   }
   
-  vector<f64> m(num_features, 0.0);
-  vector<f64> v(num_features, 0.0);
+  vector<f64> m(NUM_FEATURES, 0.0);
+  vector<f64> v(NUM_FEATURES, 0.0);
   f64 alpha0 = 1e-2;
   f64 eps = 1e-8;
   f64 beta1 = 0.9, beta2 = 0.999;
   f64 lambda = 1e-6;
-
+ 
   i32 time = 0;
   while(1) {
     time += 1;
@@ -109,18 +105,18 @@ void update_weights(vector<training_sample> const& samples) {
     f64 alpha = alpha0 * pow(0.995, time);
 
     // compute gradients
-    vector<f64> g(num_features);
+    vector<f64> g(NUM_FEATURES);
     f64 total_loss = 0;
-#pragma omp parallel
+    // #pragma omp parallel
     {
-      vector<f64> L_g(num_features);
+      vector<f64> L_g(NUM_FEATURES);
       f64 L_total_loss = 0;
 
-#pragma omp for
+      // #pragma omp for
       FOR(isample, samples.size()) {
         auto const& sample = samples[isample];
         f64 value = 0.0;
-        FOR(i, num_features) {
+        FOR(i, NUM_FEATURES) {
           value += (sample.features1[i] - sample.features2[i]) * w[i];
         }
         value = tanh(value);
@@ -129,22 +125,22 @@ void update_weights(vector<training_sample> const& samples) {
 
         L_total_loss += value;
 
-        FOR(i, num_features) if(i != 0) {
+        FOR(i, NUM_FEATURES) if(i != 0) {
           L_g[i] += (sample.features1[i] - sample.features2[i]) * der;
         }
       }
 
 #pragma omp critical
       {
-        FOR(i, num_features) g[i] += L_g[i];
+        FOR(i, NUM_FEATURES) g[i] += L_g[i];
         total_loss += L_total_loss;
       }
     }
     total_loss /= samples.size();
-    FOR(i, num_features) g[i] /= samples.size();
+    FOR(i, NUM_FEATURES) g[i] /= samples.size();
 
     // L2-reg
-    FOR(i, num_features) {
+    FOR(i, NUM_FEATURES) {
       total_loss += (lambda/2) * w[i]*w[i];
       g[i] += lambda * w[i];
     }
@@ -152,7 +148,7 @@ void update_weights(vector<training_sample> const& samples) {
     f64 max_delta = 0;
     
     // update the weights
-    FOR(i, num_features) if(i != 0) {
+    FOR(i, NUM_FEATURES) if(i != 0) {
       m[i] = beta1 * m[i] + (1 - beta1) * g[i];
       v[i] = beta2 * v[i] + (1 - beta2) * g[i] * g[i];
 
@@ -161,7 +157,7 @@ void update_weights(vector<training_sample> const& samples) {
       max_delta = max(max_delta, abs(delta));
     }
 
-    FOR(i, num_features) {
+    FOR(i, NUM_FEATURES) {
       w[i] = max(w[i], 0.0);
     }
     
@@ -178,6 +174,15 @@ void update_weights(vector<training_sample> const& samples) {
     if(max_delta < 1e-4) break;
   }
 
+  FOR(u, puzzle.n) {
+    FOR(v, u+1) if(u+v < puzzle.n) {
+      cerr << setw(5) << setprecision(2) << fixed
+           << w[u*(u+1)/2 + v] << " ";
+    }
+    cerr << endl;
+  }
+
+  
   runtime_assert(w[1] > 0.01);
   {
     cerr << "TRI: " << endl;

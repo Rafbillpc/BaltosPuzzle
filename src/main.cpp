@@ -4,6 +4,7 @@
 #include <omp.h>
 
 int main(int argc, char** argv) {
+  init_eval();
   puzzle.make(12);
   weights.init();
 

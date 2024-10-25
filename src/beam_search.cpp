@@ -200,8 +200,6 @@ beam_search::search(beam_state const& initial_state) {
     
     timer timer_s;
 
-    saved_features.eb();
-    
     {
       vector<euler_tour> tours_next;
       

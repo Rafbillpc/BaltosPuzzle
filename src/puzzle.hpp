@@ -21,8 +21,6 @@ struct puzzle_data {
 
   i32 tgt_tok_to_pos[MAX_SIZE];
   i32 tgt_pos_to_tok[MAX_SIZE];
-
-  u32 num_features;
   
   void make(i32 n);
 };

@@ -34,13 +34,6 @@ void puzzle_data::make(i32 n_) {
     FOR(d, 6) rot[ix][d] = from_coord[{u+du[d],v+dv[d]}];
   }
 
-  u32 dist_feature_key[27][27];
-  i32 next_feature = 0;
-  FOR(x, 27) FOR(y, x+1) if(x+y < 27) {
-    dist_feature_key[x][y] = next_feature++;
-  }
-  runtime_assert(next_feature == NUM_FEATURES);
-  
   FOR(u, size) FOR(v, size) dist[u][v] = 999'999'999;
   FOR(u, size) {
     FOR(x, 6) {
@@ -52,16 +45,15 @@ void puzzle_data::make(i32 n_) {
 
             i32 di = dx+dy;
 
-            i32 delta_u = dx * du[x] + dy * du[y];
-            i32 delta_v = dx * dv[x] + dy * dv[y];
-
             if(di < (i32)dist[u][w]) {
               dist[u][w] = di;
 
               i32 a = max(dx, dy);
               i32 b = min(dx, dy);
-              
-              dist_feature[u][w] = dist_feature_key[a][b];
+
+              if(a+b < 27) {
+                dist_feature[u][w] = dist_feature_key[a][b];
+              }
             }
               
             w = rot[w][y];
@@ -85,8 +77,6 @@ void puzzle_data::make(i32 n_) {
   FOR(i, size) {
     tgt_tok_to_pos[tgt_pos_to_tok[i]] = i;
   }
-
-  num_features = (n+1) * n / 2;
 }
 
 void puzzle_state::set_tgt() {
