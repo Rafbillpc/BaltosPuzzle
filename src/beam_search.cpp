@@ -2,8 +2,6 @@
 #include "puzzle.hpp"
 #include <mutex>
 
-weights_t weights;
-
 const u64 HASH_SIZE = 1ull<<25;
 const u64 HASH_MASK = HASH_SIZE-1;
 
@@ -119,7 +117,9 @@ void beam_search_instance::traverse_tour
         if(keep) {
 
           if(rng.randomFloat() < config.features_save_probability){
-            saved_features->push_back(S.features());
+            saved_features->eb();
+            get<0>(saved_features->back()) = istep;
+            S.features(get<1>(saved_features->back()));
           }
           
           while(ncommit < nstack_moves) {
@@ -190,7 +190,7 @@ beam_search::search(beam_state const& initial_state) {
 
   u32 low = max_score, high = 0;
 
-  vector<vector<vector<i32>>> saved_features;
+  vector<tuple<i32, features_vec > > saved_features;
   
   for(u32 istep = 0;; ++istep) {
     if(istep > MAX_SOLUTION_SIZE - 10) {
@@ -213,7 +213,7 @@ beam_search::search(beam_state const& initial_state) {
         instance.cutoff_keep_probability = cutoff_keep_probability;
         instance.low = max_score;
         instance.high = 0;
-        instance.saved_features = &saved_features.back();
+        instance.saved_features = &saved_features;
         
         instance.traverse_tour(config, initial_state, tour_current, tours_next);
 

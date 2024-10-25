@@ -1,16 +1,12 @@
+#pragma once
 #include "header.hpp"
 #include "puzzle.hpp"
+#include "eval.hpp"
 
 FORCE_INLINE
 u64 hash_pos(u32 x, u32 y) {
   return uint64_hash::hash_int(x * 4096 + y);
 }
-
-struct weights_t {
-  u32 dist_weight[MAX_SIZE][MAX_SIZE];
-};
-
-extern weights_t weights;
 
 struct beam_state {
   puzzle_state src, tgt;
@@ -149,14 +145,13 @@ struct beam_state {
     return cost;
   }
 
-  vector<i32> features() const {
-    vector<i32> V(puzzle.size, 0);
+  void features(features_vec& V) const {
+    FOR(i, NUM_FEATURES) V[i] = 0;
     FORU(u, 1, puzzle.size-1) {
       u32 x = src.tok_to_pos[u];
       u32 y = tgt.tok_to_pos[u];
-      V[puzzle.dist_key[x][y]] += 1;
+      V[puzzle.dist_feature[x][y]] += 1;
     }
-    return V;
   }
 };
 
@@ -192,7 +187,7 @@ struct beam_search_instance {
   u32 low;
   u32 high;
 
-  vector<vector<i32>>* saved_features;
+  vector<tuple<i32, features_vec > >* saved_features;
   
   u8 stack_moves[MAX_SOLUTION_SIZE];
   u8 stack_last_move_src[MAX_SOLUTION_SIZE];
@@ -208,7 +203,7 @@ struct beam_search_instance {
 
 struct beam_search_result {
   vector<u8> solution;
-  vector<vector<vector<i32> > > saved_features;
+  vector<tuple<i32, features_vec > > saved_features;
 };
 
 struct beam_search {

@@ -1,4 +1,5 @@
 #include "puzzle.hpp"
+#include "eval.hpp"
 
 puzzle_data puzzle;
 
@@ -33,6 +34,13 @@ void puzzle_data::make(i32 n_) {
     FOR(d, 6) rot[ix][d] = from_coord[{u+du[d],v+dv[d]}];
   }
 
+  u32 dist_feature_key[27][27];
+  i32 next_feature = 0;
+  FOR(x, 27) FOR(y, x+1) if(x+y < 27) {
+    dist_feature_key[x][y] = next_feature++;
+  }
+  runtime_assert(next_feature == NUM_FEATURES);
+  
   FOR(u, size) FOR(v, size) dist[u][v] = 999'999'999;
   FOR(u, size) {
     FOR(x, 6) {
@@ -49,14 +57,11 @@ void puzzle_data::make(i32 n_) {
 
             if(di < (i32)dist[u][w]) {
               dist[u][w] = di;
-              dist_delta[u][w] = {delta_u, delta_v};
 
               i32 a = max(dx, dy);
               i32 b = min(dx, dy);
               
-              dist_key[u][w] = a*(a+1)/2 + b;
-
-              dist_heuristic_initial[u][w] = dist_heuristic(a,b);
+              dist_feature[u][w] = dist_feature_key[a][b];
             }
               
             w = rot[w][y];
