@@ -1,6 +1,7 @@
 #include "header.hpp"
 #include "puzzle.hpp"
 #include "training.hpp"
+#include <fstream>
 #include <omp.h>
 #include <argparse/argparse.hpp>
 
@@ -11,6 +12,9 @@ int main(int argc, char** argv) {
   program.add_argument("--n")
     .scan<'i', int>();
 
+  program.add_argument("--load")
+    .default_value("");
+  
   argparse::ArgumentParser train_cmd("train");
   program.add_subparser(train_cmd);
 
@@ -48,6 +52,15 @@ int main(int argc, char** argv) {
   puzzle.make(n);
   weights.init();
 
+  string load_weights = program.get("load");
+  if(!load_weights.empty()) {
+    ifstream is(load_weights);
+    runtime_assert(is.good());
+    weights_vec w;
+    is.read((char*)&w, sizeof(w));
+    weights.from_weights(w);
+  }
+  
   if(program.is_subcommand_used(train_cmd)) {
 
     bool print = train_cmd.get<bool>("print");

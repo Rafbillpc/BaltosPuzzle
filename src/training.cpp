@@ -117,7 +117,7 @@ void update_weights(training_config const& config,
   
   vector<f64> m(NUM_FEATURES, 0.0);
   vector<f64> v(NUM_FEATURES, 0.0);
-  f64 alpha0 = 1e-1;
+  f64 alpha0 = 1e-2;
   f64 eps = 1e-8;
   f64 beta1 = 0.9, beta2 = 0.999;
   f64 lambda = 1e-6;
@@ -184,6 +184,7 @@ void update_weights(training_config const& config,
     FOR(i, NUM_FEATURES) {
       w[i] = max(w[i], 0.0);
     }
+    w[1] = 1;
     
     // printing
     if(time % 100 == 0) {
@@ -197,8 +198,7 @@ void update_weights(training_config const& config,
 
     if(max_delta < 1e-4) break;
   }
-  
-  runtime_assert(w[1] > 0.01);
+
   {
     cerr << "TRI: " << endl;
     FOR(u, puzzle.n) {
