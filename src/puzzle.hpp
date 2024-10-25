@@ -7,6 +7,17 @@ const i32 dv[6] = {1,1,0,-1,-1,0};
 const u32 MAX_SIZE = 2107;
 const u32 MAX_SOLUTION_SIZE = 50'000;
 
+static inline
+f32 dist_heuristic(f32 x, f32 y) {
+  const f32 a = 0.72813342;
+  const f32 b = 1.08982143;
+  const f32 c = 0.36606469;
+  const f32 d = 0.15821429;
+  const f32 e = 0.30125;
+
+  return a*x+b*y+c*x*x+d*x*y+e*y*y;
+}
+
 struct puzzle_data {
   i32 n;
   u32 size;
@@ -16,6 +27,7 @@ struct puzzle_data {
   u32 dist[MAX_SIZE][MAX_SIZE];
   array<i32, 2> dist_delta[MAX_SIZE][MAX_SIZE];
   u32 dist_key[MAX_SIZE][MAX_SIZE];
+  f32 dist_heuristic_initial[MAX_SIZE][MAX_SIZE];
   
   array<i32, 2> to_coord[MAX_SIZE];
   map<array<i32, 2>, u32> from_coord;

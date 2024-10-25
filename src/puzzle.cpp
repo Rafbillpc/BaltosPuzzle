@@ -55,6 +55,8 @@ void puzzle_data::make(i32 n_) {
               i32 b = min(dx, dy);
               
               dist_key[u][w] = a*(a+1)/2 + b;
+
+              dist_heuristic_initial[u][w] = dist_heuristic(a,b);
             }
               
             w = rot[w][y];

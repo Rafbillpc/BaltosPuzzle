@@ -76,12 +76,10 @@ void find_solution
 
 
 void beam_search_instance::traverse_tour
-(beam_state S,
+(beam_search_config const& config,
+ beam_state S,
  euler_tour const& tour_current,
- vector<euler_tour> &tours_next,
- i32 &count,
- vector<i32> &features
- )
+ vector<euler_tour> &tours_next)
 {
   u32 nstack_moves = 0;
   stack_last_move_src[0] = 12;
@@ -120,9 +118,8 @@ void beam_search_instance::traverse_tour
         }
         if(keep) {
 
-          count += 1;
-          if(rng.random32(count) == 0) {
-            features = S.features();
+          if(rng.randomFloat() < config.features_save_probability){
+            saved_features->push_back(S.features());
           }
           
           while(ncommit < nstack_moves) {
@@ -133,7 +130,7 @@ void beam_search_instance::traverse_tour
           FOR(m, 12) if(m != stack_last_move_src[nstack_moves] &&
                         m != stack_last_move_tgt[nstack_moves]) {
             auto [v,h] = S.plan_move(m);
-            if(v <= cutoff) {
+            if(1 || v <= cutoff) {
               auto prev = hash_table[h&HASH_MASK];
               if(prev != h) {
                 hash_table[h&HASH_MASK] = h;
@@ -193,7 +190,7 @@ beam_search::search(beam_state const& initial_state) {
 
   u32 low = max_score, high = 0;
 
-  vector<vector<i32>> features;
+  vector<vector<vector<i32>>> saved_features;
   
   for(u32 istep = 0;; ++istep) {
     if(istep > MAX_SOLUTION_SIZE - 10) {
@@ -203,8 +200,7 @@ beam_search::search(beam_state const& initial_state) {
     
     timer timer_s;
 
-    i32 count = 0;
-    features.eb();
+    saved_features.eb();
     
     {
       vector<euler_tour> tours_next;
@@ -217,8 +213,9 @@ beam_search::search(beam_state const& initial_state) {
         instance.cutoff_keep_probability = cutoff_keep_probability;
         instance.low = max_score;
         instance.high = 0;
-        instance.traverse_tour(initial_state, tour_current, tours_next,
-                               count, features.back());
+        instance.saved_features = &saved_features.back();
+        
+        instance.traverse_tour(config, initial_state, tour_current, tours_next);
 
         free_tree(tour_current);
         low = min(low, instance.low);
@@ -251,13 +248,16 @@ beam_search::search(beam_state const& initial_state) {
       total_size += tour.size;
     }
 
-    if(config.print) {
-      cerr << setw(6) << istep+1 <<
-        ": low..cut = " << setw(3) << low << ".." << setw(3) << cutoff <<
-        ": avg = " << fixed << setprecision(2) << average_score << 
-        ", tree size = " << setw(11) << total_size <<
-        ", elapsed = " << setw(10) << fixed << setprecision(5) << timer_s.elapsed() << "s" <<
-        endl;
+    if(config.print && (istep % config.print_interval == 0)) {
+#pragma omp critical
+      {
+        cerr << setw(6) << istep+1 <<
+          ": low..cut = " << setw(3) << low << ".." << setw(3) << cutoff <<
+          ": avg = " << fixed << setprecision(2) << average_score << 
+          ", tree size = " << setw(11) << total_size <<
+          ", elapsed = " << setw(10) << fixed << setprecision(5) << timer_s.elapsed() << "s" <<
+          endl;
+      }
     }
 
     if(low == 0) {
@@ -270,7 +270,7 @@ beam_search::search(beam_state const& initial_state) {
 
       return beam_search_result {
         .solution = solution,
-        .features = features,
+        .saved_features = saved_features,
       };
     }
   }

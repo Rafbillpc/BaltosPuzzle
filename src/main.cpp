@@ -11,21 +11,27 @@ struct training_sample {
 vector<training_sample> gather_samples() {
   vector<training_sample> samples;
 
-  i64 total_size = 0;
   i64 total_count = 0;
+  f64 total_size = 0;
+  f64 total_size2 = 0;
+
+  i64 base_seed = rng.randomInt64();
   
 #pragma omp parallel
   {
     unique_ptr<beam_search> search = make_unique<beam_search>(beam_search_config {
-        .print = false,
-        .width = 1<<12,
+        .print = true,
+        .print_interval = 1000,
+        .width = 1<<8,
+        .features_save_probability = 0.001,
       });
 
-    while(1) {
+    FOR(step, 1) {
       u64 seed;
 #pragma omp critical
       {
-        seed = rng.randomInt64();
+        base_seed += 1;
+        seed = base_seed;
       }
     
       puzzle_state src;
@@ -39,35 +45,51 @@ vector<training_sample> gather_samples() {
       state.init();
     
       auto result = search->search(state);
-      if(result.solution.empty()) continue;
       bool should_stop = 0;
       
 #pragma omp critical
       {
+
         auto size = result.solution.size();
 
-        total_size += size;
-        total_count += 1;
+        if(size > 0) {
+          total_size += size;
+          total_size2 += (f64)size * size;
+          total_count += 1;
         
-        FOR(i, size) {
-          samples.pb(training_sample {
-              .features1 = state.features(),
-              .features2 = result.features[i]
-            });
-          if(samples.size() % 25'000 == 0) debug(samples.size());
-          state.do_move(result.solution[i]);
+          FOR(i, size) {
+            for(auto v : result.saved_features[i]) {
+              samples.pb(training_sample {
+                  .features1 = state.features(),
+                  .features2 = v
+                });
+              if(samples.size() % 10'000 == 0) debug(samples.size());
+            }
+            state.do_move(result.solution[i]);
+          }
         }
 
-        if(samples.size() > 500'000) should_stop = 1;
+        if(samples.size() > 1'000'000) should_stop = 1;
       }
 
       if(should_stop) break;
     }
+    #pragma omp critical
+    {
+      debug("DONE", omp_get_thread_num());
+    }
   }
 
-  cerr
-    << "average_size = " << setprecision(10) << fixed << (f64)total_size / total_count
-    << endl;
+  {
+    f64 mean  = total_size / total_count;
+    f64 mean2 = total_size2 / total_count;
+    f64 var = mean2 - mean*mean;
+    f64 std = sqrt(var);
+  
+    cerr
+      << "sizes = " << setprecision(6) << fixed << mean << " ± " << std
+      << endl;
+  }
   
   return samples;
 }
@@ -77,49 +99,66 @@ void train(vector<training_sample> const& samples) {
   i32 num_features = puzzle.num_features;
   if(w.empty()) {
     w.resize(num_features);
-    FOR(i, num_features) w[i] = rng.randomDouble();
+    FOR(u, puzzle.size) FOR(v, puzzle.size) {
+      w[puzzle.dist_key[u][v]] = (f64)weights.dist_weight[u][v] / 64.0;
+    }
     w[0] = 0;
   }
   
   vector<f64> m(num_features, 0.0);
   vector<f64> v(num_features, 0.0);
-  f64 alpha0 = 1e-1;
+  f64 alpha0 = 1e-2;
   f64 eps = 1e-8;
   f64 beta1 = 0.9, beta2 = 0.999;
-  f64 lambda = 1e-5;
+  f64 lambda = 1e-6;
 
   i32 time = 0;
   while(1) {
     time += 1;
 
-    f64 alpha = alpha0 * pow(0.99, time);
+    f64 alpha = alpha0 * pow(0.995, time);
 
     // compute gradients
     vector<f64> g(num_features);
     f64 total_loss = 0;
-    for(auto const& sample : samples) {
-      f64 value = 0.0;
-      FOR(i, num_features) {
-        value += (sample.features1[i] - sample.features2[i]) * w[i];
+#pragma omp parallel
+    {
+      vector<f64> L_g(num_features);
+      f64 L_total_loss = 0;
+
+#pragma omp for
+      FOR(isample, samples.size()) {
+        auto const& sample = samples[isample];
+        f64 value = 0.0;
+        FOR(i, num_features) {
+          value += (sample.features1[i] - sample.features2[i]) * w[i];
+        }
+        value = tanh(value);
+
+        f64 der = 1.0 - value * value;
+
+        L_total_loss += value;
+
+        FOR(i, num_features) if(i != 0) {
+          L_g[i] += (sample.features1[i] - sample.features2[i]) * der;
+        }
       }
-      value = tanh(value);
 
-      f64 der = 1.0 - value * value;
-
-      total_loss += value;
-
-      FOR(i, num_features) if(i != 0) {
-        g[i] += (sample.features1[i] - sample.features2[i]) * der;
+#pragma omp critical
+      {
+        FOR(i, num_features) g[i] += L_g[i];
+        total_loss += L_total_loss;
       }
     }
+    total_loss /= samples.size();
     FOR(i, num_features) g[i] /= samples.size();
 
     // L2-reg
     FOR(i, num_features) {
+      total_loss += (lambda/2) * w[i]*w[i];
       g[i] += lambda * w[i];
     }
-    
-    
+
     f64 max_delta = 0;
     
     // update the weights
@@ -132,12 +171,16 @@ void train(vector<training_sample> const& samples) {
       max_delta = max(max_delta, abs(delta));
     }
 
+    FOR(i, num_features) {
+      w[i] = max(w[i], 0.0);
+    }
+    
     // printing
     if(time % 100 == 0) {
       cerr
         << "time = " << setw(4) << time
         << ", lr = " << fixed << setprecision(6) << alpha
-        << ", loss = " << fixed << setprecision(6) << total_loss / samples.size()
+        << ", loss = " << fixed << setprecision(6) << total_loss
         << ", max = " << fixed << setprecision(6) << max_delta
         << endl;
     }
@@ -147,19 +190,6 @@ void train(vector<training_sample> const& samples) {
 
   runtime_assert(w[1] > 0.01);
   {
-    cerr << "HEX: " << endl;
-    u32 ix = 0;
-    FOR(u, 2*puzzle.n-1) {
-      u32 ncol = 2*puzzle.n-1 - abs(u-(puzzle.n-1));
-      FOR(i, abs(u-(puzzle.n-1))) cerr << "     ";
-      FOR(icol, ncol) {
-        cerr << setw(5) << setprecision(2) << fixed <<
-          w[puzzle.dist_key[puzzle.center][ix]] / w[1] << "     ";
-        ix += 1;
-      }
-      cerr << endl;
-    }
-
     cerr << "TRI: " << endl;
     FOR(u, puzzle.n) {
       FOR(v, u+1) if(u+v < puzzle.n) {
@@ -171,15 +201,16 @@ void train(vector<training_sample> const& samples) {
   }
   
   FOR(u, puzzle.size) FOR(v, puzzle.size) {
-    weights.dist_weight[u][v] = 100 * (w[puzzle.dist_key[u][v]] / w[1]);
+    weights.dist_weight[u][v] = 64 * (w[puzzle.dist_key[u][v]] / w[1]);
   }
 }
 
 int main(int argc, char** argv) {
-  puzzle.make(8);
+  puzzle.make(27);
 
   FOR(u, puzzle.size) FOR(v, puzzle.size) {
-    weights.dist_weight[u][v] = 10 * puzzle.dist[u][v];
+    weights.dist_weight[u][v] =
+      64 * puzzle.dist_heuristic_initial[u][v];
   }
 
   while(1) {

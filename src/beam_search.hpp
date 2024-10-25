@@ -176,7 +176,9 @@ struct euler_tour {
 
 struct beam_search_config {
   bool print;
+  u32  print_interval;
   u64  width;
+  f32  features_save_probability;
 };
 
 struct beam_search_instance {
@@ -190,22 +192,23 @@ struct beam_search_instance {
   u32 low;
   u32 high;
 
+  vector<vector<i32>>* saved_features;
+  
   u8 stack_moves[MAX_SOLUTION_SIZE];
   u8 stack_last_move_src[MAX_SOLUTION_SIZE];
   u8 stack_last_move_tgt[MAX_SOLUTION_SIZE];
 
   void traverse_tour
-  (beam_state S,
+  (beam_search_config const& config,
+   beam_state S,
    euler_tour const& tour_current,
-   vector<euler_tour> &tour_nexts,
-   i32 &count,
-   vector<i32>& features
+   vector<euler_tour> &tour_nexts
    );
 };
 
 struct beam_search_result {
   vector<u8> solution;
-  vector<vector<i32>> features;
+  vector<vector<vector<i32> > > saved_features;
 };
 
 struct beam_search {
