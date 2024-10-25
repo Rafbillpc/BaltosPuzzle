@@ -24,7 +24,7 @@ vector<training_sample> gather_samples() {
       searches[thread_id] = make_unique<beam_search>(beam_search_config {
           .print = true,
           .print_interval = 1000,
-          .width = 1<<13,
+          .width = 1<<9,
           .features_save_probability = 0.002,
         });
     }
@@ -106,6 +106,9 @@ void update_weights(vector<training_sample> const& samples) {
   vector<f64> w(NUM_FEATURES, 0.0);
   FOR(u, puzzle.size) FOR(v, puzzle.size) {
     w[puzzle.dist_feature[u][v]] = (f64)weights.dist_weight[u][v] / 64.0;
+  }
+  FOR(m, bit(7)) {
+    w[nei_feature_key[m]] = (f64)weights.nei_weight[m] / 64.0;
   }
   
   vector<f64> m(NUM_FEATURES, 0.0);
@@ -210,6 +213,9 @@ void update_weights(vector<training_sample> const& samples) {
 
   FOR(u, puzzle.size) FOR(v, puzzle.size) {
     weights.dist_weight[u][v] = 64 * (w[puzzle.dist_feature[u][v]] / w[1]);
+  }
+  FOR(u, bit(7)) {
+    weights.nei_weight[u] = 64 * (w[nei_feature_key[u]] / w[1]);
   }
 }
 
