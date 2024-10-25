@@ -107,12 +107,12 @@ void update_weights(vector<training_sample> const& samples) {
     // compute gradients
     vector<f64> g(NUM_FEATURES);
     f64 total_loss = 0;
-    // #pragma omp parallel
+#pragma omp parallel
     {
       vector<f64> L_g(NUM_FEATURES);
       f64 L_total_loss = 0;
 
-      // #pragma omp for
+#pragma omp for
       FOR(isample, samples.size()) {
         auto const& sample = samples[isample];
         f64 value = 0.0;
@@ -189,13 +189,20 @@ void update_weights(vector<training_sample> const& samples) {
     FOR(u, puzzle.n) {
       FOR(v, u+1) if(u+v < puzzle.n) {
         cerr << setw(5) << setprecision(2) << fixed
-             << w[u*(u+1)/2 + v] / w[1] << " ";
+             << w[dist_feature_key[u][v]] / w[1] << " ";
       }
       cerr << endl;
     }
   }
-  
+
   FOR(u, puzzle.size) FOR(v, puzzle.size) {
     weights.dist_weight[u][v] = 64 * (w[puzzle.dist_feature[u][v]] / w[1]);
+  }
+}
+
+void training_loop() {
+  while(1) {
+    auto samples = gather_samples();
+    update_weights(samples);
   }
 }

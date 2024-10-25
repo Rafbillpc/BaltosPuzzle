@@ -11,3 +11,5 @@ struct training_sample {
 
 vector<training_sample> gather_samples();
 void update_weights(vector<training_sample> const& samples);
+
+void training_loop();
