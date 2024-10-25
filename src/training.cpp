@@ -1,5 +1,7 @@
 #include "training.hpp"
+#include "beam_search.hpp"
 #include "eval.hpp"
+#include <omp.h>
 
 vector<training_sample> gather_samples() {
   vector<training_sample> samples;
@@ -9,15 +11,25 @@ vector<training_sample> gather_samples() {
   f64 total_size2 = 0;
 
   i64 base_seed = rng.randomInt64();
+
+  i32 num_threads = omp_get_max_threads();
+  vector<unique_ptr<beam_search>> searches(num_threads);
   
 #pragma omp parallel
   {
-    unique_ptr<beam_search> search = make_unique<beam_search>(beam_search_config {
-        .print = false,
-        .print_interval = 1000,
-        .width = 1<<10,
-        .features_save_probability = 0.001,
-      });
+    auto thread_id = omp_get_thread_num();
+
+#pragma omp critical
+    {
+      searches[thread_id] = make_unique<beam_search>(beam_search_config {
+          .print = true,
+          .print_interval = 1000,
+          .width = 1<<13,
+          .features_save_probability = 0.002,
+        });
+    }
+
+    beam_search &search = *searches[thread_id];
 
     while(1) {
       u64 seed;
@@ -37,7 +49,7 @@ vector<training_sample> gather_samples() {
       state.tgt.direction = rng.random32(2);
       state.init();
     
-      auto result = search->search(state);
+      auto result = search.search(state);
       bool should_stop = 0;
       
 #pragma omp critical
@@ -64,10 +76,15 @@ vector<training_sample> gather_samples() {
           }
         }
 
-        if(samples.size() > 500'000) should_stop = 1;
+        if(samples.size() > 1'000'000) should_stop = 1;
       }
 
       if(should_stop) break;
+    }
+
+    #pragma omp critical
+    {
+      for(auto &s : searches) if(s) s->should_stop = true;
     }
   }
 
@@ -93,7 +110,7 @@ void update_weights(vector<training_sample> const& samples) {
   
   vector<f64> m(NUM_FEATURES, 0.0);
   vector<f64> v(NUM_FEATURES, 0.0);
-  f64 alpha0 = 1e-2;
+  f64 alpha0 = 1;
   f64 eps = 1e-8;
   f64 beta1 = 0.9, beta2 = 0.999;
   f64 lambda = 1e-6;
@@ -188,6 +205,7 @@ void update_weights(vector<training_sample> const& samples) {
       cerr << setw(5) << setprecision(2) << fixed
            << w[NUM_FEATURES_DIST + i] / w[1] << " ";
     }
+    cerr << endl;
   }
 
   FOR(u, puzzle.size) FOR(v, puzzle.size) {

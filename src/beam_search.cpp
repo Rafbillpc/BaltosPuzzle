@@ -129,17 +129,15 @@ void beam_search_instance::traverse_tour
           FOR(m, 12) if(m != stack_last_move_src[nstack_moves] &&
                         m != stack_last_move_tgt[nstack_moves]) {
             auto [v,h,solved] = S.plan_move(m);
-            if(1 || v <= cutoff) {
-              auto prev = hash_table[h&HASH_MASK];
-              if(prev != h) {
-                hash_table[h&HASH_MASK] = h;
-                if(solved) found_solution = true;
-                low = min(low, v);
-                high = max(high, v);
-                histogram[v] += 1;
-                tour_next->push(1+m);
-                tour_next->push(0);
-              }
+            auto prev = hash_table[h&HASH_MASK];
+            if(prev != h) {
+              hash_table[h&HASH_MASK] = h;
+              if(solved) found_solution = true;
+              low = min(low, v);
+              high = max(high, v);
+              histogram[v] += 1;
+              tour_next->push(1+m);
+              tour_next->push(0);
             }
           }
         }
@@ -171,6 +169,7 @@ void beam_search_instance::traverse_tour
 beam_search::beam_search(beam_search_config config_) {
   config = config_;
   hash_table.assign(HASH_SIZE, rng.randomInt64());
+  should_stop = false;
 }
 
 beam_search::~beam_search() {
@@ -191,7 +190,7 @@ beam_search::search(beam_state const& initial_state) {
   vector<tuple<i32, features_vec > > saved_features;
   
   for(u32 istep = 0;; ++istep) {
-    if(istep > MAX_SOLUTION_SIZE - 10) {
+    if(should_stop || istep > MAX_SOLUTION_SIZE - 10) {
       debug("FAIL");
       return beam_search_result{};
     }
@@ -261,6 +260,8 @@ beam_search::search(beam_state const& initial_state) {
       }
     }
 
+    if(low <= 1) runtime_assert(found_solution);
+    
     if(found_solution) {
       vector<u8> solution;
       
@@ -268,6 +269,8 @@ beam_search::search(beam_state const& initial_state) {
         find_solution(solution, istep+1, initial_state, tour_current);
         if(!solution.empty()) break;
       }
+
+      runtime_assert(!solution.empty());
 
       return beam_search_result {
         .solution = solution,

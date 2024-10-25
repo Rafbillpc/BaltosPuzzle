@@ -32,7 +32,7 @@ struct beam_state {
     }
 
     FOR(u, puzzle.size) {
-      if(src.pos_to_tok[u] == tgt.pos_to_tok[u]) {
+      if(src.pos_to_tok[u] == tgt.pos_to_tok[u] && src.pos_to_tok[u] != 0) {
         add_solved_cell(u);
       }
     }
@@ -183,7 +183,8 @@ struct beam_state {
   }
 
   u32 value() const {
-    return max(0, cost);
+    // runtime_assert(cost >= 0);
+    return cost;
   }
 
   void features(features_vec& V) const {
@@ -257,6 +258,8 @@ struct beam_search {
   vector<u32> histogram;
 
   beam_search_instance instance;
+
+  bool should_stop;
 
   beam_search(beam_search_config config_);
   ~beam_search();

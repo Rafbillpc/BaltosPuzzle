@@ -53,17 +53,23 @@ void init_eval() {
   }
   runtime_assert(next_feature == NUM_FEATURES_DIST);
 
-  FOR(mask, bit(7)) {
+  FOR(mask, bit(6)) {
     i32 min_mask = mask;
-    FOR(s, 7) {
-      i32 rotated_mask = ((mask<<s)|(mask>>(7-s))) & (bit(7)-1);
+    FOR(s, 6) {
+      i32 rotated_mask = ((mask<<s)|(mask>>(6-s))) & (bit(6)-1);
       if(rotated_mask < min_mask) min_mask = rotated_mask;
     }
     if(mask == min_mask) {
       nei_feature_key[mask] = next_feature++;
+      nei_feature_key[mask|bit(6)] = next_feature++;
     }else{
       nei_feature_key[mask] = nei_feature_key[min_mask];
+      nei_feature_key[mask|bit(6)] = nei_feature_key[min_mask|bit(6)];
     }
+    auto f0 = nei_feature_key[mask] - NUM_FEATURES_DIST;
+    auto f1 = nei_feature_key[mask|bit(6)] - NUM_FEATURES_DIST;
+    debug(bitset<6>(mask), bitset<6>(min_mask), f0, f1);
   }
+  debug(next_feature);
   runtime_assert(next_feature == NUM_FEATURES_DIST + NUM_FEATURES_NEI);
 }
