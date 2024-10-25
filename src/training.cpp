@@ -1,9 +1,10 @@
 #include "training.hpp"
 #include "beam_search.hpp"
 #include "eval.hpp"
+#include <fstream>
 #include <omp.h>
 
-vector<training_sample> gather_samples() {
+vector<training_sample> gather_samples(training_config const& config) {
   vector<training_sample> samples;
 
   i64 total_count = 0;
@@ -22,10 +23,10 @@ vector<training_sample> gather_samples() {
 #pragma omp critical
     {
       searches[thread_id] = make_unique<beam_search>(beam_search_config {
-          .print = true,
+          .print = config.print,
           .print_interval = 1000,
-          .width = 1<<9,
-          .features_save_probability = 0.002,
+          .width = config.gather_width,
+          .features_save_probability = config.features_save_probability,
         });
     }
 
@@ -76,7 +77,7 @@ vector<training_sample> gather_samples() {
           }
         }
 
-        if(samples.size() > 1'000'000) should_stop = 1;
+        if(samples.size() >= config.gather_count) should_stop = 1;
       }
 
       if(should_stop) break;
@@ -102,8 +103,11 @@ vector<training_sample> gather_samples() {
   return samples;
 }
 
-void update_weights(vector<training_sample> const& samples) {
-  vector<f64> w(NUM_FEATURES, 0.0);
+void update_weights(training_config const& config,
+                    vector<training_sample> const& samples)
+{
+  weights_vec w;
+  FOR(i, NUM_FEATURES) w[i] = 0;
   FOR(u, puzzle.size) FOR(v, puzzle.size) {
     w[puzzle.dist_feature[u][v]] = (f64)weights.dist_weight[u][v] / 64.0;
   }
@@ -113,7 +117,7 @@ void update_weights(vector<training_sample> const& samples) {
   
   vector<f64> m(NUM_FEATURES, 0.0);
   vector<f64> v(NUM_FEATURES, 0.0);
-  f64 alpha0 = 1;
+  f64 alpha0 = 1e-1;
   f64 eps = 1e-8;
   f64 beta1 = 0.9, beta2 = 0.999;
   f64 lambda = 1e-6;
@@ -211,6 +215,12 @@ void update_weights(vector<training_sample> const& samples) {
     cerr << endl;
   }
 
+  if(!config.output.empty()) {
+    ofstream os(config.output);
+    runtime_assert(os.good());
+    os.write((char*)&w, sizeof(weights_vec));
+  }
+  
   FOR(u, puzzle.size) FOR(v, puzzle.size) {
     weights.dist_weight[u][v] = 64 * (w[puzzle.dist_feature[u][v]] / w[1]);
   }
@@ -219,9 +229,9 @@ void update_weights(vector<training_sample> const& samples) {
   }
 }
 
-void training_loop() {
+void training_loop(training_config const& config) {
   while(1) {
-    auto samples = gather_samples();
-    update_weights(samples);
+    auto samples = gather_samples(config);
+    update_weights(config, samples);
   }
 }

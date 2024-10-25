@@ -46,6 +46,17 @@ void weights_t::init(){
   }
 }
 
+void weights_t::from_weights(weights_vec const& w) {
+  FOR(u, puzzle.size) FOR(v, puzzle.size) {
+    dist_weight[u][v] =
+      64 * w[puzzle.dist_feature[u][v]];
+  }
+
+  FOR(i, bit(7)) {
+    nei_weight[i] = 64 * w[nei_feature_key[i]];
+  }
+}
+
 void init_eval() {
   i32 next_feature = 0;
   FOR(x, 27) FOR(y, x+1) if(x+y < 27) {

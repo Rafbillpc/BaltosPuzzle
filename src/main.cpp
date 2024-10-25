@@ -13,6 +13,25 @@ int main(int argc, char** argv) {
 
   argparse::ArgumentParser train_cmd("train");
   program.add_subparser(train_cmd);
+
+  train_cmd.add_argument("--width")
+    .scan<'u', u32>()
+    .default_value(1<<10);
+
+  train_cmd.add_argument("--count")
+    .scan<'u', u32>()
+    .default_value(1'000'000);
+
+  train_cmd.add_argument("--ratio")
+    .scan<'f', f32>()
+    .default_value(0.001);
+
+  train_cmd.add_argument("--print")
+    .default_value(false)
+    .implicit_value(true);
+
+  train_cmd.add_argument("-o", "--output")
+    .default_value("");
   
   try {
     program.parse_args(argc, argv);
@@ -30,7 +49,24 @@ int main(int argc, char** argv) {
   weights.init();
 
   if(program.is_subcommand_used(train_cmd)) {
-    training_loop();
+
+    bool print = train_cmd.get<bool>("print");
+    u32 width = train_cmd.get<u32>("width");
+    u32 count = train_cmd.get<u32>("count");
+    f32 ratio = train_cmd.get<f32>("ratio");
+
+    string output = train_cmd.get("output");
+    
+    auto config = training_config {
+      .print = print,
+      .gather_width = width,
+      .gather_count = count,
+      .features_save_probability = ratio,
+      .output = output,
+    };
+    
+    training_loop(config);
+
   }else{
     cerr << program;
   }

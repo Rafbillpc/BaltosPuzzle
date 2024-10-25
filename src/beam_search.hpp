@@ -40,7 +40,7 @@ struct beam_state {
 
   FORCE_INLINE
   bool is_solved() const {
-    return num_unsolved == 0;
+    return num_unsolved == 0 && src.direction == tgt.direction;
   }
   
   FORCE_INLINE
