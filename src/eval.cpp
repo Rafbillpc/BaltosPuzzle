@@ -31,9 +31,14 @@ const f32 initial_dist_heuristic[NUM_FEATURES_DIST] =
     293.62
   };
 
-u32 dist_feature_key[27][27];
 u32 dist_reduced_key[6][27][27];
+
+u32 dist_feature_key[27][27];
 u32 nei_feature_key[1<<7];
+u32 src_edge_feature_key[NUM_REDUCED][NUM_REDUCED];
+u32 tgt_edge_feature_key[NUM_REDUCED][NUM_REDUCED];
+u32 tok_pair_feature_key[NUM_REDUCED][NUM_REDUCED];
+
 weights_t weights;
 
 void weights_t::init(){
@@ -104,6 +109,7 @@ void init_eval() {
       = dist_reduced_key[d][min<u32>(a, MAX_REDUCTION)][min<u32>(b, MAX_REDUCTION)];
   }
   FOR(d, 6) FOR(a, 27) FOR(b, 27) runtime_assert(dist_reduced_key[d][a][b] != (u32)-1);
+  runtime_assert(next_reduced == NUM_REDUCED);
   
   FOR(mask, bit(6)) {
     i32 min_mask = mask;
@@ -118,10 +124,32 @@ void init_eval() {
       nei_feature_key[mask] = nei_feature_key[min_mask];
       nei_feature_key[mask|bit(6)] = nei_feature_key[min_mask|bit(6)];
     }
-    auto f0 = nei_feature_key[mask] - NUM_FEATURES_DIST;
-    auto f1 = nei_feature_key[mask|bit(6)] - NUM_FEATURES_DIST;
-    debug(bitset<6>(mask), bitset<6>(min_mask), f0, f1);
+    // auto f0 = nei_feature_key[mask] - NUM_FEATURES_DIST;
+    // auto f1 = nei_feature_key[mask|bit(6)] - NUM_FEATURES_DIST;
+    // debug(bitset<6>(mask), bitset<6>(min_mask), f0, f1);
   }
+  runtime_assert(next_feature ==
+                 NUM_FEATURES_DIST + NUM_FEATURES_NEI);
+
+  FOR(a, NUM_REDUCED) FOR(b, NUM_REDUCED) {
+    src_edge_feature_key[a][b] = next_feature++;
+  }
+  runtime_assert(next_feature ==
+                 NUM_FEATURES_DIST + NUM_FEATURES_NEI + NUM_FEATURES_SRC_EDGE);
+
+  FOR(a, NUM_REDUCED) FOR(b, NUM_REDUCED) {
+    tgt_edge_feature_key[a][b] = next_feature++;
+  }
+  runtime_assert(next_feature ==
+                 NUM_FEATURES_DIST + NUM_FEATURES_NEI + NUM_FEATURES_SRC_EDGE +
+                 NUM_FEATURES_TGT_EDGE);
+
+  FOR(a, NUM_REDUCED) FOR(b, NUM_REDUCED) {
+    tok_pair_feature_key[a][b] = next_feature++;
+  }
+  runtime_assert(next_feature ==
+                 NUM_FEATURES_DIST + NUM_FEATURES_NEI + NUM_FEATURES_SRC_EDGE +
+                 NUM_FEATURES_TGT_EDGE + NUM_FEATURES_TOK_PAIR);
+
   debug(next_feature);
-  runtime_assert(next_feature == NUM_FEATURES_DIST + NUM_FEATURES_NEI);
 }
