@@ -4,6 +4,10 @@
 #include <fstream>
 #include <omp.h>
 
+f64 sigmoid(f64 z) {
+  return 1.0 / (1.0 + std::exp(-z));
+}
+
 vector<training_sample> gather_samples(training_config const& config) {
   vector<training_sample> samples;
 
@@ -15,7 +19,7 @@ vector<training_sample> gather_samples(training_config const& config) {
 
   i32 num_threads = omp_get_max_threads();
   vector<unique_ptr<beam_search>> searches(num_threads);
-  
+
 #pragma omp parallel
   {
     auto thread_id = omp_get_thread_num();
@@ -27,12 +31,19 @@ vector<training_sample> gather_samples(training_config const& config) {
           .print_interval = 1000,
           .width = config.gather_width,
           .features_save_probability = config.features_save_probability,
+          .num_threads = 1
         });
     }
+  }
 
-    beam_search &search = *searches[thread_id];
+  while(samples.size() < config.gather_count) {
+    
+#pragma omp parallel
+    {
+      auto thread_id = omp_get_thread_num();
 
-    while(1) {
+      beam_search &search = *searches[thread_id];
+
       u64 seed;
 #pragma omp critical
       {
@@ -51,11 +62,9 @@ vector<training_sample> gather_samples(training_config const& config) {
       state.init();
     
       auto result = search.search(state);
-      bool should_stop = 0;
       
 #pragma omp critical
       {
-
         auto size = result.solution.size();
 
         if(size > 0) {
@@ -76,19 +85,11 @@ vector<training_sample> gather_samples(training_config const& config) {
             if(samples.size() % 10'000 == 0) debug(samples.size());
           }
         }
-
-        if(samples.size() >= config.gather_count) should_stop = 1;
       }
 
-      if(should_stop) break;
-    }
-
-    #pragma omp critical
-    {
-      for(auto &s : searches) if(s) s->should_stop = true;
     }
   }
-
+  
   {
     f64 mean  = total_size / total_count;
     f64 mean2 = total_size2 / total_count;
@@ -107,17 +108,12 @@ void update_weights(training_config const& config,
                     vector<training_sample> const& samples)
 {
   weights_vec w;
-  FOR(i, NUM_FEATURES) w[i] = 0;
-  FOR(u, puzzle.size) FOR(v, puzzle.size) {
-    w[puzzle.dist_feature[u][v]] = (f64)weights.dist_weight[u][v] / 64.0;
-  }
-  FOR(m, bit(7)) {
-    w[nei_feature_key[m]] = (f64)weights.nei_weight[m] / 64.0;
-  }
+  FOR(i, NUM_FEATURES) w[i] = rng.randomDouble();
+  w[0] = 0;
   
   vector<f64> m(NUM_FEATURES, 0.0);
   vector<f64> v(NUM_FEATURES, 0.0);
-  f64 alpha0 = 1e-2;
+  f64 alpha0 = 1e-1;
   f64 eps = 1e-8;
   f64 beta1 = 0.9, beta2 = 0.999;
   f64 lambda = 1e-6;
@@ -126,7 +122,7 @@ void update_weights(training_config const& config,
   while(1) {
     time += 1;
 
-    f64 alpha = alpha0 * pow(0.995, time);
+    f64 alpha = alpha0 * pow(0.99, time);
 
     // compute gradients
     vector<f64> g(NUM_FEATURES);
@@ -144,13 +140,12 @@ void update_weights(training_config const& config,
           value += (sample.features1[i] - sample.features2[i]) * w[i];
         }
         value = tanh(value);
-
-        f64 der = 1.0 - value * value;
+        f64 derivative = 1 - value * value;
 
         L_total_loss += value;
 
         FOR(i, NUM_FEATURES) if(i != 0) {
-          L_g[i] += (sample.features1[i] - sample.features2[i]) * der;
+          L_g[i] += (sample.features1[i] - sample.features2[i]) * derivative;
         }
       }
 
@@ -187,7 +182,7 @@ void update_weights(training_config const& config,
     w[1] = 1;
     
     // printing
-    if(time % 100 == 0) {
+    if(time < 10 || time % 10 == 0) {
       cerr
         << "time = " << setw(4) << time
         << ", lr = " << fixed << setprecision(6) << alpha
@@ -222,10 +217,10 @@ void update_weights(training_config const& config,
   }
   
   FOR(u, puzzle.size) FOR(v, puzzle.size) {
-    weights.dist_weight[u][v] = 64 * (w[puzzle.dist_feature[u][v]] / w[1]);
+    weights.dist_weight[u][v] = EVAL_SCALE * (w[puzzle.dist_feature[u][v]] / w[1]);
   }
   FOR(u, bit(7)) {
-    weights.nei_weight[u] = 64 * (w[nei_feature_key[u]] / w[1]);
+    weights.nei_weight[u] = EVAL_SCALE * (w[nei_feature_key[u]] / w[1]);
   }
 }
 

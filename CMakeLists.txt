@@ -48,6 +48,7 @@ add_library(common
   src/beam_search.cpp
   src/eval.cpp
   src/training.cpp
+  src/solver.cpp
 )
 target_include_directories(common PUBLIC
   src)

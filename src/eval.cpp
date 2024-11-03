@@ -38,7 +38,7 @@ weights_t weights;
 void weights_t::init(){
   FOR(u, puzzle.size) FOR(v, puzzle.size) {
     dist_weight[u][v] =
-      64 * initial_dist_heuristic[puzzle.dist_feature[u][v]];
+      EVAL_SCALE * initial_dist_heuristic[puzzle.dist_feature[u][v]];
   }
 
   FOR(i, bit(7)) {
@@ -49,11 +49,11 @@ void weights_t::init(){
 void weights_t::from_weights(weights_vec const& w) {
   FOR(u, puzzle.size) FOR(v, puzzle.size) {
     dist_weight[u][v] =
-      64 * w[puzzle.dist_feature[u][v]];
+      EVAL_SCALE * w[puzzle.dist_feature[u][v]];
   }
 
   FOR(i, bit(7)) {
-    nei_weight[i] = 64 * w[nei_feature_key[i]];
+    nei_weight[i] = EVAL_SCALE * w[nei_feature_key[i]];
   }
 }
 

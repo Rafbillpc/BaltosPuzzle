@@ -219,6 +219,8 @@ struct beam_search_config {
   u32  print_interval;
   u64  width;
   f32  features_save_probability;
+
+  u32 num_threads;
 };
 
 struct beam_search_instance {
@@ -257,7 +259,8 @@ struct beam_search {
   vector<u64> hash_table;
   vector<u32> histogram;
 
-  beam_search_instance instance;
+  vector<beam_search_instance> L_instances;
+  vector<vector<u32>> L_histograms;
 
   bool should_stop;
 

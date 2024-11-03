@@ -1,8 +1,10 @@
 #pragma once
 #include "puzzle.hpp"
 
+const f64 EVAL_SCALE = 256;
 const u32 NUM_FEATURES_DIST = 196;
 const u32 NUM_FEATURES_NEI = 28;
+const u32 NUM_FEATURES_POUET = 10;
 
 const u32 NUM_FEATURES =
   NUM_FEATURES_DIST +

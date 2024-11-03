@@ -1,11 +1,12 @@
 #include "beam_search.hpp"
 #include "puzzle.hpp"
 #include <mutex>
+#include <omp.h>
 
-const u64 HASH_SIZE = 1ull<<25;
+const u64 HASH_SIZE = 1ull<<26;
 const u64 HASH_MASK = HASH_SIZE-1;
 
-const i64 MIN_TREE_SIZE = 1<<18;
+const i64 MIN_TREE_SIZE = 1<<20;
 i64 tree_size = MIN_TREE_SIZE;
 
 mutex bs_mutex;
@@ -115,7 +116,8 @@ void beam_search_instance::traverse_tour
         }
         if(keep) {
 
-          if(rng.randomFloat() < config.features_save_probability){
+          if(config.features_save_probability > 0 &&
+             rng.randomFloat() < config.features_save_probability){
             saved_features->eb();
             get<0>(saved_features->back()) = istep;
             S.features(get<1>(saved_features->back()));
@@ -170,6 +172,9 @@ beam_search::beam_search(beam_search_config config_) {
   config = config_;
   hash_table.assign(HASH_SIZE, rng.randomInt64());
   should_stop = false;
+
+  L_histograms.resize(config.num_threads);
+  L_instances.resize(config.num_threads);
 }
 
 beam_search::~beam_search() {
@@ -199,28 +204,66 @@ beam_search::search(beam_state const& initial_state) {
 
     u32 low = max_score, high = 0;
     bool found_solution = false;
-    
-    {
-      vector<euler_tour> tours_next;
-      
-      for(auto tour_current : tours_current) {
-        instance.hash_table = hash_table.data();
-        instance.histogram = histogram.data();
-        instance.istep = istep;
-        instance.cutoff = cutoff;
-        instance.cutoff_keep_probability = cutoff_keep_probability;
-        instance.low = max_score;
-        instance.high = 0;
-        instance.found_solution = false;
-        instance.saved_features = &saved_features;
-        
-        instance.traverse_tour(config, initial_state, tour_current, tours_next);
 
-        free_tree(tour_current);
-        low = min(low, instance.low);
-        high = max(high, instance.high);
-        found_solution = found_solution || instance.found_solution;
+    {
+      sort(all(tours_current), [&](auto const& t1, auto const& t2) {
+        return t1.size < t2.size;
+      });
+      
+      vector<euler_tour> tours_next;
+
+#pragma omp parallel num_threads(config.num_threads)
+      {
+        u32 thread_id = omp_get_thread_num();
+
+        auto &L_histogram = L_histograms[thread_id];
+        if(L_histogram.size() < max_score) L_histogram.resize(max_score, 0);
+        auto &L_instance = L_instances[thread_id];
+
+        vector<euler_tour> L_tours_next;
+
+        while(1) {
+          euler_tour tour_current;
+#pragma omp critical
+          { if(!tours_current.empty()) {
+              tour_current = tours_current.back();
+              tours_current.pop_back();
+            }else{
+              tour_current.size = 0;
+            }
+          }
+          if(tour_current.size == 0) break;
+          
+          L_instance.hash_table = hash_table.data();
+          L_instance.histogram = L_histogram.data();
+          L_instance.istep = istep;
+          L_instance.cutoff = cutoff;
+          L_instance.cutoff_keep_probability = cutoff_keep_probability;
+          L_instance.low = max_score;
+          L_instance.high = 0;
+          L_instance.found_solution = false;
+          L_instance.saved_features = &saved_features;
+        
+          L_instance.traverse_tour
+            (config, initial_state, tour_current, L_tours_next);
+
+#pragma omp critical
+          {
+            free_tree(tour_current);
+            low = min(low, L_instance.low);
+            high = max(high, L_instance.high);
+            found_solution = found_solution || L_instance.found_solution;
+          }
+        }
+
+        #pragma omp critical
+        {
+          FORU(i, low, high) histogram[i] += L_histogram[i];
+          FORU(i, low, high) L_histogram[i] = 0;
+          tours_next.insert(end(tours_next), all(L_tours_next));
+        }
       }
+      
       tours_current = tours_next;
     }
     
@@ -230,14 +273,14 @@ beam_search::search(beam_state const& initial_state) {
       cutoff_keep_probability = 1.0;
       FORU(i, low, high) {
         if(total_count + histogram[i] > config.width) {
-          average_score += i * (config.width-total_count);
+          average_score += (f64) i * (config.width-total_count);
           cutoff = i;
           cutoff_keep_probability = (f32)(config.width-total_count) / (f32)(histogram[i]);
           total_count = config.width;
           break;
         }
         total_count += histogram[i];
-        average_score += i * histogram[i];
+        average_score += (f64) i * histogram[i];
       }
       FORU(i, low, high) histogram[i] = 0;
       average_score /= max<f64>(1, total_count);
@@ -255,6 +298,7 @@ beam_search::search(beam_state const& initial_state) {
           ": low..cut = " << setw(3) << low << ".." << setw(3) << cutoff <<
           ": avg = " << fixed << setprecision(2) << average_score << 
           ", tree size = " << setw(11) << total_size <<
+          ", tree count = " << setw(4) << tours_current.size() <<
           ", elapsed = " << setw(10) << fixed << setprecision(5) << timer_s.elapsed() << "s" <<
           endl;
       }

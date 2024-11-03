@@ -1,7 +1,7 @@
 #include "header.hpp"
 #include "puzzle.hpp"
 #include "training.hpp"
-#include <fstream>
+#include "solver.hpp"
 #include <omp.h>
 #include <argparse/argparse.hpp>
 
@@ -20,15 +20,15 @@ int main(int argc, char** argv) {
 
   train_cmd.add_argument("--width")
     .scan<'u', u32>()
-    .default_value(1<<10);
+    .default_value(1u<<10);
 
   train_cmd.add_argument("--count")
     .scan<'u', u32>()
-    .default_value(1'000'000);
+    .default_value(1'000'000u);
 
   train_cmd.add_argument("--ratio")
     .scan<'f', f32>()
-    .default_value(0.001);
+    .default_value(0.001f);
 
   train_cmd.add_argument("--print")
     .default_value(false)
@@ -36,7 +36,19 @@ int main(int argc, char** argv) {
 
   train_cmd.add_argument("-o", "--output")
     .default_value("");
-  
+
+ 
+  argparse::ArgumentParser solve_cmd("solve");
+  program.add_subparser(solve_cmd);
+
+  solve_cmd.add_argument("--width")
+    .required()
+    .scan<'u', u32>();
+
+  solve_cmd.add_argument("--dir")
+    .scan<'u', u32>()
+    .default_value(0u);
+ 
   try {
     program.parse_args(argc, argv);
   } catch (const std::exception& err) {
@@ -80,6 +92,18 @@ int main(int argc, char** argv) {
     
     training_loop(config);
 
+  }else if(program.is_subcommand_used(solve_cmd)) {
+    debug("here");
+    u32 width = solve_cmd.get<u32>("width");
+    debug(width);
+    u32 dirs = solve_cmd.get<u32>("dir");
+    debug(dirs);
+
+    auto C = load_configurations();
+    runtime_assert(C.count(n));
+    
+    solve(C[n], width, dirs);
+    
   }else{
     cerr << program;
   }
