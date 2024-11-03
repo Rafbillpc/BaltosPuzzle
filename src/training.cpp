@@ -191,20 +191,20 @@ void update_weights(training_config const& config,
         << endl;
     }
 
-    if(max_delta < 1e-4) break;
+    if(max_delta < 1e-3) break;
   }
 
   {
     cerr << "TRI: " << endl;
     FOR(u, puzzle.n) {
       FOR(v, u+1) if(u+v < puzzle.n) {
-        cerr << setw(5) << setprecision(2) << fixed
+        cerr << setw(6) << setprecision(3) << fixed
              << w[dist_feature_key[u][v]] / w[1] << " ";
       }
       cerr << endl;
     }
     FOR(i, NUM_FEATURES_NEI) {
-      cerr << setw(5) << setprecision(2) << fixed
+      cerr << setw(6) << setprecision(3) << fixed
            << w[NUM_FEATURES_DIST + i] / w[1] << " ";
     }
     cerr << endl;

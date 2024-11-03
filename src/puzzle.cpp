@@ -39,7 +39,7 @@ void puzzle_data::make(i32 n_) {
     FOR(x, 6) {
       i32 v = u;
       FORU(dx, 0, 2*n) {
-        FOR(y, 6) {
+        FOR(y, 6) if(y == (x+1)%6) {
           i32 w = v;
           FORU(dy, 0, 2*n) {
 
@@ -53,6 +53,7 @@ void puzzle_data::make(i32 n_) {
 
               if(a+b < 27) {
                 dist_feature[u][w] = dist_feature_key[a][b];
+                dist_reduced[u][w] = dist_reduced_key[x][a][b];
               }
             }
               

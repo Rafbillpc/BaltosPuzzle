@@ -6,7 +6,7 @@
 const u64 HASH_SIZE = 1ull<<26;
 const u64 HASH_MASK = HASH_SIZE-1;
 
-const i64 MIN_TREE_SIZE = 1<<20;
+const i64 MIN_TREE_SIZE = 1<<19;
 i64 tree_size = MIN_TREE_SIZE;
 
 mutex bs_mutex;

@@ -15,6 +15,7 @@ struct puzzle_data {
   u32 rot[MAX_SIZE][6];
   u32 dist[MAX_SIZE][MAX_SIZE];
   u32 dist_feature[MAX_SIZE][MAX_SIZE];
+  u32 dist_reduced[MAX_SIZE][MAX_SIZE];
   
   array<i32, 2> to_coord[MAX_SIZE];
   map<array<i32, 2>, u32> from_coord;

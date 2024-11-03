@@ -32,6 +32,7 @@ const f32 initial_dist_heuristic[NUM_FEATURES_DIST] =
   };
 
 u32 dist_feature_key[27][27];
+u32 dist_reduced_key[6][27][27];
 u32 nei_feature_key[1<<7];
 weights_t weights;
 
@@ -63,7 +64,47 @@ void init_eval() {
     dist_feature_key[x][y] = next_feature++;
   }
   runtime_assert(next_feature == NUM_FEATURES_DIST);
-
+   
+  i32 next_reduced = 0;
+  FOR(d, 6) FOR(a, 27) FOR(b, 27) dist_reduced_key[d][a][b] = (u32)-1;
+  {
+    i32 x = next_reduced++;
+    FOR(d, 6) dist_reduced_key[d][0][0] = x;
+  }
+  FORU(a, 1, MAX_REDUCTION) {
+    i32 x = next_reduced++;
+    FOR(d, 6) {
+      dist_reduced_key[d][a][a] = x;
+    }
+  }
+  FORU(a, MAX_REDUCTION+1, 26) {
+    FOR(d, 6) dist_reduced_key[d][a][a] = dist_reduced_key[d][MAX_REDUCTION][MAX_REDUCTION];
+  }
+  FORU(a, 1, MAX_REDUCTION) {
+    i32 x = next_reduced++;
+    FOR(d, 6) {
+      dist_reduced_key[d][0][a] = x;
+      dist_reduced_key[(d+1)%6][a][0] = x;
+    }
+  }
+  FORU(a, MAX_REDUCTION+1, 26) {
+    FOR(d, 6) {
+      dist_reduced_key[d][0][a] = dist_reduced_key[d][0][MAX_REDUCTION];
+      dist_reduced_key[(d+1)%6][a][0] = dist_reduced_key[d][0][MAX_REDUCTION];
+    }
+  }
+  FORU(a, 1, MAX_REDUCTION) FORU(b, 1, MAX_REDUCTION) if(a != b) {
+    FOR(d, 6) {
+      i32 x = next_reduced++;
+      dist_reduced_key[d][a][b] = x;
+    }
+  }
+  FOR(d, 6) FORU(a, 1, 26) FORU(b, 1, 26) if(dist_reduced_key[d][a][b] == (u32)-1) {
+    dist_reduced_key[d][a][b]
+      = dist_reduced_key[d][min<u32>(a, MAX_REDUCTION)][min<u32>(b, MAX_REDUCTION)];
+  }
+  FOR(d, 6) FOR(a, 27) FOR(b, 27) runtime_assert(dist_reduced_key[d][a][b] != (u32)-1);
+  
   FOR(mask, bit(6)) {
     i32 min_mask = mask;
     FOR(s, 6) {
