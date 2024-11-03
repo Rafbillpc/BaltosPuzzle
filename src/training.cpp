@@ -109,11 +109,10 @@ void update_weights(training_config const& config,
 {
   weights_vec w;
   FOR(i, NUM_FEATURES) w[i] = rng.randomDouble();
-  w[0] = 0;
   
   vector<f64> m(NUM_FEATURES, 0.0);
   vector<f64> v(NUM_FEATURES, 0.0);
-  f64 alpha0 = 1e-1;
+  f64 alpha0 = 1;
   f64 eps = 1e-8;
   f64 beta1 = 0.9, beta2 = 0.999;
   f64 lambda = 1e-6;
@@ -139,12 +138,12 @@ void update_weights(training_config const& config,
         FOR(i, NUM_FEATURES) {
           value += (sample.features1[i] - sample.features2[i]) * w[i];
         }
-        value = tanh(value);
-        f64 derivative = 1 - value * value;
+        value = sigmoid(value);
+        f64 derivative = value;
 
-        L_total_loss += value;
+        L_total_loss += -log(value);
 
-        FOR(i, NUM_FEATURES) if(i != 0) {
+        FOR(i, NUM_FEATURES) {
           L_g[i] += (sample.features1[i] - sample.features2[i]) * derivative;
         }
       }
@@ -167,7 +166,7 @@ void update_weights(training_config const& config,
     f64 max_delta = 0;
     
     // update the weights
-    FOR(i, NUM_FEATURES) if(i != 0) {
+    FOR(i, NUM_FEATURES) {
       m[i] = beta1 * m[i] + (1 - beta1) * g[i];
       v[i] = beta2 * v[i] + (1 - beta2) * g[i] * g[i];
 
@@ -175,10 +174,8 @@ void update_weights(training_config const& config,
       w[i] -= delta;
       max_delta = max(max_delta, abs(delta));
     }
-
-    FOR(i, NUM_FEATURES) {
-      w[i] = max(w[i], 0.0);
-    }
+    FOR(i, NUM_FEATURES) w[i] = max(w[i], 0.0);
+    w[0] = 0;
     w[1] = 1;
     
     // printing
@@ -194,18 +191,22 @@ void update_weights(training_config const& config,
     if(max_delta < 1e-3) break;
   }
 
+  f64 min_weight = w[0];
+  FOR(i, NUM_FEATURES) min_weight = min(min_weight, w[i]);
+  FOR(i, NUM_FEATURES) w[i] -= min_weight;
+  
   {
     cerr << "TRI: " << endl;
     FOR(u, puzzle.n) {
       FOR(v, u+1) if(u+v < puzzle.n) {
         cerr << setw(6) << setprecision(3) << fixed
-             << w[dist_feature_key[u][v]] / w[1] << " ";
+             << w[dist_feature_key[u][v]] << " ";
       }
       cerr << endl;
     }
     FOR(i, NUM_FEATURES_NEI) {
       cerr << setw(6) << setprecision(3) << fixed
-           << w[NUM_FEATURES_DIST + i] / w[1] << " ";
+           << w[NUM_FEATURES_DIST + i] << " ";
     }
     cerr << endl;
   }
@@ -215,13 +216,8 @@ void update_weights(training_config const& config,
     runtime_assert(os.good());
     os.write((char*)&w, sizeof(weights_vec));
   }
-  
-  FOR(u, puzzle.size) FOR(v, puzzle.size) {
-    weights.dist_weight[u][v] = EVAL_SCALE * (w[puzzle.dist_feature[u][v]] / w[1]);
-  }
-  FOR(u, bit(7)) {
-    weights.nei_weight[u] = EVAL_SCALE * (w[nei_feature_key[u]] / w[1]);
-  }
+
+  weights.from_weights(w);
 }
 
 void training_loop(training_config const& config) {

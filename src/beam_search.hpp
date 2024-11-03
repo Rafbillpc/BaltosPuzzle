@@ -182,9 +182,41 @@ struct beam_state {
     do_move(6*(move/6) + (move+3)%6);
   }
 
+  // u32 value() const {
+  //   // runtime_assert(cost >= 0);
+  //   return cost;
+  // }
+
   u32 value() const {
-    // runtime_assert(cost >= 0);
-    return cost;
+    u32 v = 0;
+    FORU(u, 1, puzzle.size-1) {
+      u32 x = src.tok_to_pos[u];
+      u32 y = tgt.tok_to_pos[u];
+      v += weights.dist_weight[x][y];
+    }
+    // FOR(u, puzzle.size) {
+    //   v += weights.nei_weight[nei_solved[u]];
+    // }
+    FOR(u, puzzle.size) if(src.pos_to_tok[u] != 0) {
+      FOR(d, 3) {
+        auto v = puzzle.rot[u][d];
+        if(src.pos_to_tok[v] == 0) continue;
+        i32 a = puzzle.dist_reduced[u][tgt.tok_to_pos[src.pos_to_tok[u]]];
+        i32 b = puzzle.dist_reduced[v][tgt.tok_to_pos[src.pos_to_tok[v]]];
+        v += weights.src_edge_weight[d][a][b];
+      }
+    }
+    FOR(u, puzzle.size) if(tgt.pos_to_tok[u] != 0) {
+      FOR(d, 3) {
+        auto v = puzzle.rot[u][d];
+        if(tgt.pos_to_tok[v] == 0) continue;
+        i32 a = puzzle.dist_reduced[src.tok_to_pos[tgt.pos_to_tok[u]]][u];
+        i32 b = puzzle.dist_reduced[src.tok_to_pos[tgt.pos_to_tok[v]]][v];
+        v += weights.tgt_edge_weight[d][a][b];
+      }
+    }
+
+    return v;
   }
 
   void features(features_vec& V) const {
@@ -194,8 +226,26 @@ struct beam_state {
       u32 y = tgt.tok_to_pos[u];
       V[puzzle.dist_feature[x][y]] += 1;
     }
-    FOR(u, puzzle.size) {
-      V[nei_feature_key[nei_solved[u]]] += 1;
+    // FOR(u, puzzle.size) {
+    //   V[nei_feature_key[nei_solved[u]]] += 1;
+    // }
+    FOR(u, puzzle.size) if(src.pos_to_tok[u] != 0) {
+      FOR(d, 3) {
+        auto v = puzzle.rot[u][d];
+        if(src.pos_to_tok[v] == 0) continue;
+        i32 a = puzzle.dist_reduced[u][tgt.tok_to_pos[src.pos_to_tok[u]]];
+        i32 b = puzzle.dist_reduced[v][tgt.tok_to_pos[src.pos_to_tok[v]]];
+        V[src_edge_feature_key[d][a][b]] += 1;
+      }
+    }
+    FOR(u, puzzle.size) if(tgt.pos_to_tok[u] != 0) {
+      FOR(d, 3) {
+        auto v = puzzle.rot[u][d];
+        if(tgt.pos_to_tok[v] == 0) continue;
+        i32 a = puzzle.dist_reduced[src.tok_to_pos[tgt.pos_to_tok[u]]][u];
+        i32 b = puzzle.dist_reduced[src.tok_to_pos[tgt.pos_to_tok[v]]][v];
+        V[tgt_edge_feature_key[d][a][b]] += 1;
+      }
     }
   }
 };

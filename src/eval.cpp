@@ -35,9 +35,8 @@ u32 dist_reduced_key[6][27][27];
 
 u32 dist_feature_key[27][27];
 u32 nei_feature_key[1<<7];
-u32 src_edge_feature_key[NUM_REDUCED][NUM_REDUCED];
-u32 tgt_edge_feature_key[NUM_REDUCED][NUM_REDUCED];
-u32 tok_pair_feature_key[NUM_REDUCED][NUM_REDUCED];
+u32 src_edge_feature_key[3][NUM_REDUCED][NUM_REDUCED];
+u32 tgt_edge_feature_key[3][NUM_REDUCED][NUM_REDUCED];
 
 weights_t weights;
 
@@ -50,6 +49,14 @@ void weights_t::init(){
   FOR(i, bit(7)) {
     nei_weight[i] = 0;
   }
+
+  FOR(d, 3) FOR(i, NUM_REDUCED) FOR(j, NUM_REDUCED) {
+    src_edge_weight[d][i][j] = 0;
+  }
+
+  FOR(d, 3) FOR(i, NUM_REDUCED) FOR(j, NUM_REDUCED) {
+    tgt_edge_weight[d][i][j] = 0;
+  }
 }
 
 void weights_t::from_weights(weights_vec const& w) {
@@ -60,6 +67,14 @@ void weights_t::from_weights(weights_vec const& w) {
 
   FOR(i, bit(7)) {
     nei_weight[i] = EVAL_SCALE * w[nei_feature_key[i]];
+  }
+
+  FOR(d, 3) FOR(i, NUM_REDUCED) FOR(j, NUM_REDUCED) {
+    src_edge_weight[d][i][j] = EVAL_SCALE * w[src_edge_feature_key[d][i][j]];
+  }
+
+  FOR(d, 3) FOR(i, NUM_REDUCED) FOR(j, NUM_REDUCED) {
+    tgt_edge_weight[d][i][j] = EVAL_SCALE * w[tgt_edge_feature_key[d][i][j]];
   }
 }
 
@@ -77,8 +92,8 @@ void init_eval() {
     FOR(d, 6) dist_reduced_key[d][0][0] = x;
   }
   FORU(a, 1, MAX_REDUCTION) {
-    i32 x = next_reduced++;
     FOR(d, 6) {
+      i32 x = next_reduced++;
       dist_reduced_key[d][a][a] = x;
     }
   }
@@ -86,8 +101,8 @@ void init_eval() {
     FOR(d, 6) dist_reduced_key[d][a][a] = dist_reduced_key[d][MAX_REDUCTION][MAX_REDUCTION];
   }
   FORU(a, 1, MAX_REDUCTION) {
-    i32 x = next_reduced++;
     FOR(d, 6) {
+      i32 x = next_reduced++;
       dist_reduced_key[d][0][a] = x;
       dist_reduced_key[(d+1)%6][a][0] = x;
     }
@@ -109,6 +124,7 @@ void init_eval() {
       = dist_reduced_key[d][min<u32>(a, MAX_REDUCTION)][min<u32>(b, MAX_REDUCTION)];
   }
   FOR(d, 6) FOR(a, 27) FOR(b, 27) runtime_assert(dist_reduced_key[d][a][b] != (u32)-1);
+  debug(next_reduced);
   runtime_assert(next_reduced == NUM_REDUCED);
   
   FOR(mask, bit(6)) {
@@ -131,25 +147,18 @@ void init_eval() {
   runtime_assert(next_feature ==
                  NUM_FEATURES_DIST + NUM_FEATURES_NEI);
 
-  FOR(a, NUM_REDUCED) FOR(b, NUM_REDUCED) {
-    src_edge_feature_key[a][b] = next_feature++;
+  FOR(d, 3) FOR(a, NUM_REDUCED) FOR(b, NUM_REDUCED) {
+    src_edge_feature_key[d][a][b] = next_feature++;
   }
   runtime_assert(next_feature ==
                  NUM_FEATURES_DIST + NUM_FEATURES_NEI + NUM_FEATURES_SRC_EDGE);
 
-  FOR(a, NUM_REDUCED) FOR(b, NUM_REDUCED) {
-    tgt_edge_feature_key[a][b] = next_feature++;
+  FOR(d, 3) FOR(a, NUM_REDUCED) FOR(b, NUM_REDUCED) {
+    tgt_edge_feature_key[d][a][b] = next_feature++;
   }
   runtime_assert(next_feature ==
                  NUM_FEATURES_DIST + NUM_FEATURES_NEI + NUM_FEATURES_SRC_EDGE +
                  NUM_FEATURES_TGT_EDGE);
-
-  FOR(a, NUM_REDUCED) FOR(b, NUM_REDUCED) {
-    tok_pair_feature_key[a][b] = next_feature++;
-  }
-  runtime_assert(next_feature ==
-                 NUM_FEATURES_DIST + NUM_FEATURES_NEI + NUM_FEATURES_SRC_EDGE +
-                 NUM_FEATURES_TGT_EDGE + NUM_FEATURES_TOK_PAIR);
-
+  
   debug(next_feature);
 }
