@@ -78,10 +78,9 @@ vector<training_sample> gather_samples(training_config const& config) {
               state.do_move(result.solution[curi]);
               curi += 1;
             }
-            training_sample sample;
-            state.features(sample.features1);
-            sample.features2 = v;
-            samples.pb(sample);
+            features_vec v1;
+            state.features(v1);
+            samples.eb(v1, v);
             if(samples.size() % 10'000 == 0) debug(samples.size());
           }
         }
@@ -108,20 +107,20 @@ void update_weights(training_config const& config,
                     vector<training_sample> const& samples)
 {
   weights_vec w;
-  FOR(i, NUM_FEATURES) w[i] = rng.randomDouble();
+  FOR(i, NUM_FEATURES) w[i] = 10 * rng.randomDouble();
   
   vector<f64> m(NUM_FEATURES, 0.0);
   vector<f64> v(NUM_FEATURES, 0.0);
   f64 alpha0 = 1;
   f64 eps = 1e-8;
   f64 beta1 = 0.9, beta2 = 0.999;
-  f64 lambda = 1e-6;
+  f64 lambda = 1e-7;
  
   i32 time = 0;
   while(1) {
     time += 1;
 
-    f64 alpha = alpha0 * pow(0.99, time);
+    f64 alpha = alpha0 * pow(0.999, time);
 
     // compute gradients
     vector<f64> g(NUM_FEATURES);
@@ -136,15 +135,15 @@ void update_weights(training_config const& config,
         auto const& sample = samples[isample];
         f64 value = 0.0;
         FOR(i, NUM_FEATURES) {
-          value += (sample.features1[i] - sample.features2[i]) * w[i];
+          value += sample.features[i] * w[i];
         }
-        value = sigmoid(value);
-        f64 derivative = value;
+        value = tanh(value);
+        f64 derivative = 1-value*value;
 
-        L_total_loss += -log(value);
+        L_total_loss += value;
 
         FOR(i, NUM_FEATURES) {
-          L_g[i] += (sample.features1[i] - sample.features2[i]) * derivative;
+          L_g[i] += sample.features[i] * derivative;
         }
       }
 
@@ -175,7 +174,7 @@ void update_weights(training_config const& config,
       max_delta = max(max_delta, abs(delta));
     }
     FOR(i, NUM_FEATURES) w[i] = max(w[i], 0.0);
-    w[0] = 0;
+    // w[0] = 0;
     
     // printing
     if(time < 10 || time % 10 == 0) {

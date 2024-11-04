@@ -37,6 +37,7 @@ u32 dist_feature_key[27][27];
 u32 nei_feature_key[1<<7];
 u32 src_edge_feature_key[3][NUM_REDUCED][NUM_REDUCED];
 u32 tgt_edge_feature_key[3][NUM_REDUCED][NUM_REDUCED];
+u32 pair_feature_key[NUM_REDUCED][NUM_REDUCED];
 
 weights_t weights;
 
@@ -57,6 +58,10 @@ void weights_t::init(){
   FOR(d, 3) FOR(i, NUM_REDUCED) FOR(j, NUM_REDUCED) {
     tgt_edge_weight[d][i][j] = 0;
   }
+
+  FOR(i, NUM_REDUCED) FOR(j, NUM_REDUCED) {
+    pair_weight[i][j] = 0;
+  }
 }
 
 void weights_t::from_weights(weights_vec const& w) {
@@ -75,6 +80,10 @@ void weights_t::from_weights(weights_vec const& w) {
 
   FOR(d, 3) FOR(i, NUM_REDUCED) FOR(j, NUM_REDUCED) {
     tgt_edge_weight[d][i][j] = EVAL_SCALE * w[tgt_edge_feature_key[d][i][j]];
+  }
+
+  FOR(i, NUM_REDUCED) FOR(j, NUM_REDUCED) {
+    pair_weight[i][j] = EVAL_SCALE * w[pair_feature_key[i][j]];
   }
 }
 
@@ -159,6 +168,13 @@ void init_eval() {
   runtime_assert(next_feature ==
                  NUM_FEATURES_DIST + NUM_FEATURES_NEI + NUM_FEATURES_SRC_EDGE +
                  NUM_FEATURES_TGT_EDGE);
+
+  FOR(a, NUM_REDUCED) FOR(b, NUM_REDUCED) {
+    pair_feature_key[a][b] = next_feature++;
+  }
+  runtime_assert(next_feature ==
+                 NUM_FEATURES_DIST + NUM_FEATURES_NEI + NUM_FEATURES_SRC_EDGE +
+                 NUM_FEATURES_TGT_EDGE + NUM_FEATURES_PAIR);
   
   debug(next_feature);
 }

@@ -12,8 +12,11 @@ struct training_config {
 };
 
 struct training_sample {
-  features_vec features1;
-  features_vec features2;
+  features_vec features;
+
+  training_sample(features_vec const& v1, features_vec const& v2) {
+    FOR(i, NUM_FEATURES) features[i] = v1[i] - v2[i];
+  }
 };
 
 vector<training_sample> gather_samples

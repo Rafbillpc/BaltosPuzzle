@@ -12,6 +12,7 @@ struct beam_state {
   puzzle_state src, tgt;
 
   i32 cost;
+  u32 total_dist;
   u64 hash;
 
   u8 nei_solved[MAX_SIZE];
@@ -19,6 +20,7 @@ struct beam_state {
   
   void init() {
     cost = 1;
+    total_dist = 0;
     hash = rng.randomInt64();
 
     num_unsolved = puzzle.size - 1;
@@ -48,6 +50,7 @@ struct beam_state {
     u32 x = src.tok_to_pos[u];
     u32 y = tgt.tok_to_pos[u];
     cost -= weights.dist_weight[x][y];
+    total_dist -= puzzle.dist[x][y];
   }
 
   FORCE_INLINE
@@ -55,6 +58,7 @@ struct beam_state {
     u32 x = src.tok_to_pos[u];
     u32 y = tgt.tok_to_pos[u];
     cost += weights.dist_weight[x][y];
+    total_dist += puzzle.dist[x][y];
   }
 
   FORCE_INLINE
@@ -88,13 +92,14 @@ struct beam_state {
   }
 
   FORCE_INLINE
-  tuple<u32, u64, bool> plan_move(u8 move) {
+  tuple<u32, u32, u64, bool> plan_move(u8 move) {
     do_move(move);
     u32 v = value();
+    u32 d = total_dist;
     u64 h = hash;
     bool solved = is_solved();
     undo_move(move);
-    return {v,h,solved};
+    return {v,d,h,solved};
   }
   
   void do_move_src(u8 move) {
@@ -215,6 +220,11 @@ struct beam_state {
         v += weights.tgt_edge_weight[d][a][b];
       }
     }
+    FOR(u, puzzle.size) if(src.pos_to_tok[u] != 0 && tgt.pos_to_tok[u] != 0) {
+      i32 a = puzzle.dist_reduced[u][tgt.tok_to_pos[src.pos_to_tok[u]]];
+      i32 b = puzzle.dist_reduced[src.tok_to_pos[tgt.pos_to_tok[u]]][u];
+      v += weights.pair_weight[a][b];
+    }
 
     return v;
   }
@@ -247,6 +257,11 @@ struct beam_state {
         V[tgt_edge_feature_key[d][a][b]] += 1;
       }
     }
+    FOR(u, puzzle.size) if(src.pos_to_tok[u] != 0 && tgt.pos_to_tok[u] != 0) {
+      i32 a = puzzle.dist_reduced[u][tgt.tok_to_pos[src.pos_to_tok[u]]];
+      i32 b = puzzle.dist_reduced[src.tok_to_pos[tgt.pos_to_tok[u]]][u];
+      V[pair_feature_key[a][b]] += 1;
+    }
   }
 };
 
@@ -275,14 +290,21 @@ struct beam_search_config {
 
 struct beam_search_instance {
   u64* hash_table;
-  u32* histogram;
+  u32* histogram_heur;
+  u32* histogram_dist;
 
   u32 istep;
-  u32 cutoff;
-  f32 cutoff_keep_probability;
+  
+  u32 cutoff_heur;
+  f32 cutoff_heur_keep_probability;
+  u32 cutoff_dist;
+  f32 cutoff_dist_keep_probability;
 
-  u32 low;
-  u32 high;
+  u32 low_heur;
+  u32 high_heur;
+  u32 low_dist;
+  u32 high_dist;
+
   u32 found_solution;
 
   vector<tuple<i32, features_vec > >* saved_features;
@@ -307,10 +329,12 @@ struct beam_search_result {
 struct beam_search {
   beam_search_config config;
   vector<u64> hash_table;
-  vector<u32> histogram;
+  vector<u32> histogram_heur;
+  vector<u32> histogram_dist;
 
   vector<beam_search_instance> L_instances;
-  vector<vector<u32>> L_histograms;
+  vector<vector<u32>> L_histograms_heur;
+  vector<vector<u32>> L_histograms_dist;
 
   bool should_stop;
 

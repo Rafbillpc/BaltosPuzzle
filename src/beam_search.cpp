@@ -88,7 +88,8 @@ void beam_search_instance::traverse_tour
   auto *tour_next = &tours_next.back(); 
   runtime_assert(tour_next->max_size == tree_size);
 
-  f32 cutoff_running = 1.0 + rng.randomDouble();
+  f32 cutoff_heur_running = 1.0 + rng.randomDouble();
+  f32 cutoff_dist_running = 1.0 + rng.randomDouble();
 
   FOR(iedge, tour_current.size) {
     u8 edge = tour_current[iedge];
@@ -106,16 +107,23 @@ void beam_search_instance::traverse_tour
     }else{
       if(nstack_moves == istep) {
         auto v = S.value();
-        bool keep = v < cutoff;
-        if(v == cutoff) {
-          cutoff_running += cutoff_keep_probability;
-          if(cutoff_running >= 1.0) {
+        auto d = S.total_dist;
+        bool keep = v < cutoff_heur || d < cutoff_dist;
+        if(v == cutoff_heur) {
+          cutoff_heur_running += cutoff_heur_keep_probability;
+          if(cutoff_heur_running >= 1.0) {
             keep = 1;
-            cutoff_running -= 1.0;
+            cutoff_heur_running -= 1.0;
+          }
+        }
+        if(d == cutoff_dist) {
+          cutoff_dist_running += cutoff_dist_keep_probability;
+          if(cutoff_dist_running >= 1.0) {
+            keep = 1;
+            cutoff_dist_running -= 1.0;
           }
         }
         if(keep) {
-
           if(config.features_save_probability > 0 &&
              rng.randomFloat() < config.features_save_probability){
             saved_features->eb();
@@ -130,14 +138,17 @@ void beam_search_instance::traverse_tour
 
           FOR(m, 12) if(m != stack_last_move_src[nstack_moves] &&
                         m != stack_last_move_tgt[nstack_moves]) {
-            auto [v,h,solved] = S.plan_move(m);
+            auto [v,d,h,solved] = S.plan_move(m);
             auto prev = hash_table[h&HASH_MASK];
             if(prev != h) {
               hash_table[h&HASH_MASK] = h;
               if(solved) found_solution = true;
-              low = min(low, v);
-              high = max(high, v);
-              histogram[v] += 1;
+              low_heur = min(low_heur, v);
+              high_heur = max(high_heur, v);
+              histogram_heur[v] += 1;
+              low_dist = min(low_dist, d);
+              high_dist = max(high_dist, d);
+              histogram_dist[d] += 1;
               tour_next->push(1+m);
               tour_next->push(0);
             }
@@ -173,7 +184,8 @@ beam_search::beam_search(beam_search_config config_) {
   hash_table.assign(HASH_SIZE, rng.randomInt64());
   should_stop = false;
 
-  L_histograms.resize(config.num_threads);
+  L_histograms_heur.resize(config.num_threads);
+  L_histograms_dist.resize(config.num_threads);
   L_instances.resize(config.num_threads);
 }
 
@@ -182,15 +194,19 @@ beam_search::~beam_search() {
 
 beam_search_result
 beam_search::search(beam_state const& initial_state) {
-  u32 max_score = initial_state.value() * 1.2 + 1024;
-  if(histogram.size() < max_score) histogram.resize(max_score);
+  u32 max_heur = initial_state.value() * 1.2 + 1024;
+  if(histogram_heur.size() < max_heur) histogram_heur.resize(max_heur);
+  u32 max_dist = initial_state.total_dist * 1.2 + 1024;
+  if(histogram_dist.size() < max_heur) histogram_dist.resize(max_heur);
 
   vector<euler_tour> tours_current;
   tours_current.eb(get_new_tree());
   tours_current.back().push(0);
 
-  u32 cutoff = max_score;
-  f32 cutoff_keep_probability = 1.0;
+  u32 cutoff_heur = max_heur;
+  f32 cutoff_heur_keep_probability = 1.0;
+  u32 cutoff_dist = max_dist;
+  f32 cutoff_dist_keep_probability = 1.0;
 
   vector<tuple<i32, features_vec > > saved_features;
   
@@ -202,7 +218,8 @@ beam_search::search(beam_state const& initial_state) {
     
     timer timer_s;
 
-    u32 low = max_score, high = 0;
+    u32 low_heur = max_heur, high_heur = 0;
+    u32 low_dist = max_dist, high_dist = 0;
     bool found_solution = false;
 
     {
@@ -216,8 +233,10 @@ beam_search::search(beam_state const& initial_state) {
       {
         u32 thread_id = omp_get_thread_num();
 
-        auto &L_histogram = L_histograms[thread_id];
-        if(L_histogram.size() < max_score) L_histogram.resize(max_score, 0);
+        auto &L_histogram_heur = L_histograms_heur[thread_id];
+        if(L_histogram_heur.size() < max_heur) L_histogram_heur.resize(max_heur, 0);
+        auto &L_histogram_dist = L_histograms_dist[thread_id];
+        if(L_histogram_dist.size() < max_dist) L_histogram_dist.resize(max_dist, 0);
         auto &L_instance = L_instances[thread_id];
 
         vector<euler_tour> L_tours_next;
@@ -235,12 +254,17 @@ beam_search::search(beam_state const& initial_state) {
           if(tour_current.size == 0) break;
           
           L_instance.hash_table = hash_table.data();
-          L_instance.histogram = L_histogram.data();
+          L_instance.histogram_heur = L_histogram_heur.data();
+          L_instance.histogram_dist = L_histogram_dist.data();
           L_instance.istep = istep;
-          L_instance.cutoff = cutoff;
-          L_instance.cutoff_keep_probability = cutoff_keep_probability;
-          L_instance.low = max_score;
-          L_instance.high = 0;
+          L_instance.cutoff_heur = cutoff_heur;
+          L_instance.cutoff_heur_keep_probability = cutoff_heur_keep_probability;
+          L_instance.cutoff_dist = cutoff_dist;
+          L_instance.cutoff_dist_keep_probability = cutoff_dist_keep_probability;
+          L_instance.low_heur = max_heur;
+          L_instance.high_heur = 0;
+          L_instance.low_dist = max_dist;
+          L_instance.high_dist = 0;
           L_instance.found_solution = false;
           L_instance.saved_features = &saved_features;
         
@@ -250,16 +274,24 @@ beam_search::search(beam_state const& initial_state) {
 #pragma omp critical
           {
             free_tree(tour_current);
-            low = min(low, L_instance.low);
-            high = max(high, L_instance.high);
+            low_heur = min(low_heur, L_instance.low_heur);
+            high_heur = max(high_heur, L_instance.high_heur);
+            low_dist = min(low_dist, L_instance.low_dist);
+            high_dist = max(high_dist, L_instance.high_dist);
             found_solution = found_solution || L_instance.found_solution;
           }
         }
 
         #pragma omp critical
         {
-          FORU(i, low, high) histogram[i] += L_histogram[i];
-          FORU(i, low, high) L_histogram[i] = 0;
+          FORU(i, low_heur, high_heur) {
+            histogram_heur[i] += L_histogram_heur[i];
+            L_histogram_heur[i] = 0;
+          }
+          FORU(i, low_dist, high_dist) {
+            histogram_dist[i] += L_histogram_dist[i];
+            L_histogram_dist[i] = 0;
+          }
           tours_next.insert(end(tours_next), all(L_tours_next));
         }
       }
@@ -267,25 +299,44 @@ beam_search::search(beam_state const& initial_state) {
       tours_current = tours_next;
     }
     
-    f64 average_score = 0;
+    f64 average_heur = 0;
     { u64 total_count = 0;
-      cutoff = max_score;
-      cutoff_keep_probability = 1.0;
-      FORU(i, low, high) {
-        if(total_count + histogram[i] > config.width) {
-          average_score += (f64) i * (config.width-total_count);
-          cutoff = i;
-          cutoff_keep_probability = (f32)(config.width-total_count) / (f32)(histogram[i]);
+      cutoff_heur = max_heur;
+      cutoff_heur_keep_probability = 1.0;
+      FORU(i, low_heur, high_heur) {
+        if(total_count + histogram_heur[i] > config.width) {
+          average_heur += (f64) i * (config.width-total_count);
+          cutoff_heur = i;
+          cutoff_heur_keep_probability = (f32)(config.width-total_count) / (f32)(histogram_heur[i]);
           total_count = config.width;
           break;
         }
-        total_count += histogram[i];
-        average_score += (f64) i * histogram[i];
+        total_count += histogram_heur[i];
+        average_heur += (f64) i * histogram_heur[i];
       }
-      FORU(i, low, high) histogram[i] = 0;
-      average_score /= max<f64>(1, total_count);
+      FORU(i, low_heur, high_heur) histogram_heur[i] = 0;
+      average_heur /= max<f64>(1, total_count);
     }
 
+    f64 average_dist = 0;
+    { u64 total_count = 0;
+      cutoff_dist = max_dist;
+      cutoff_dist_keep_probability = 1.0;
+      FORU(i, low_dist, high_dist) {
+        if(total_count + histogram_dist[i] > config.width) {
+          average_dist += (f64) i * (config.width-total_count);
+          cutoff_dist = i;
+          cutoff_dist_keep_probability = (f32)(config.width-total_count) / (f32)(histogram_dist[i]);
+          total_count = config.width;
+          break;
+        }
+        total_count += histogram_dist[i];
+        average_dist += (f64) i * histogram_dist[i];
+      }
+      FORU(i, low_dist, high_dist) histogram_dist[i] = 0;
+      average_dist /= max<f64>(1, total_count);
+    }
+   
     i64 total_size = 0;
     for(auto tour : tours_current) {
       total_size += tour.size;
@@ -295,8 +346,8 @@ beam_search::search(beam_state const& initial_state) {
 #pragma omp critical
       {
         cerr << setw(6) << istep+1 <<
-          ": low..cut = " << setw(3) << low << ".." << setw(3) << cutoff <<
-          ": avg = " << fixed << setprecision(2) << average_score << 
+          ": heur = " << setw(6) << low_heur << ".." << setw(6) << cutoff_heur <<
+          ", dist = " << setw(4) << low_dist << ".." << setw(4) << cutoff_dist <<
           ", tree size = " << setw(11) << total_size <<
           ", tree count = " << setw(4) << tours_current.size() <<
           ", elapsed = " << setw(10) << fixed << setprecision(5) << timer_s.elapsed() << "s" <<
