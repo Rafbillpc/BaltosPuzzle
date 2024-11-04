@@ -176,7 +176,6 @@ void update_weights(training_config const& config,
     }
     FOR(i, NUM_FEATURES) w[i] = max(w[i], 0.0);
     w[0] = 0;
-    w[1] = 1;
     
     // printing
     if(time < 10 || time % 10 == 0) {

@@ -194,9 +194,9 @@ struct beam_state {
       u32 y = tgt.tok_to_pos[u];
       v += weights.dist_weight[x][y];
     }
-    // FOR(u, puzzle.size) {
-    //   v += weights.nei_weight[nei_solved[u]];
-    // }
+    FOR(u, puzzle.size) {
+      v += weights.nei_weight[nei_solved[u]];
+    }
     FOR(u, puzzle.size) if(src.pos_to_tok[u] != 0) {
       FOR(d, 3) {
         auto v = puzzle.rot[u][d];
@@ -226,9 +226,9 @@ struct beam_state {
       u32 y = tgt.tok_to_pos[u];
       V[puzzle.dist_feature[x][y]] += 1;
     }
-    // FOR(u, puzzle.size) {
-    //   V[nei_feature_key[nei_solved[u]]] += 1;
-    // }
+    FOR(u, puzzle.size) {
+      V[nei_feature_key[nei_solved[u]]] += 1;
+    }
     FOR(u, puzzle.size) if(src.pos_to_tok[u] != 0) {
       FOR(d, 3) {
         auto v = puzzle.rot[u][d];
