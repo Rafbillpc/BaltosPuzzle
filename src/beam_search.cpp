@@ -3,7 +3,7 @@
 #include <mutex>
 #include <omp.h>
 
-const u64 HASH_SIZE = 1ull<<28;
+const u64 HASH_SIZE = 1ull<<30;
 const u64 HASH_MASK = HASH_SIZE-1;
 
 const i64 MIN_TREE_SIZE = 1<<17;
@@ -300,6 +300,7 @@ beam_search::search(beam_state const& initial_state) {
       {
         cerr << setw(6) << istep+1 <<
           ": heur = " << setw(6) << low_heur << ".." << setw(6) << cutoff_heur <<
+          ", avg = " << setw(8) << fixed << setprecision(2) << average_heur <<
           ", tree size = " << setw(11) << total_size <<
           ", tree count = " << setw(4) << tours_current.size() <<
           ", elapsed = " << setw(10) << fixed << setprecision(5) << timer_s.elapsed() << "s" <<
