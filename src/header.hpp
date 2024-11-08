@@ -28,6 +28,7 @@ using f64 = double;
 #define FORU(i, j, k) for(i32 i = (j); i <= (i32)(k); ++i)
 #define FORD(i, j, k) for(i32 i = (j); i >= (i32)(k); --i)
 
+#define UNROLL_FOR12(i) _Pragma("GCC unroll 12") FOR(i,12)
 #define UNROLL_FOR8(i) _Pragma("GCC unroll 8") FOR(i,8)
 #define UNROLL_FORD8(i) _Pragma("GCC unroll 8") FORD(i,7,0)
 #define UNROLL_FOR4(i) _Pragma("GCC unroll 4") FOR(i,4)

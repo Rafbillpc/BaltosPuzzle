@@ -36,7 +36,6 @@ struct beam_state {
   FORCE_INLINE
   bool is_solved() const {
     return cost == 0 &&
-      src.tok_to_pos[0] == tgt.tok_to_pos[0] &&
       src.direction == tgt.direction;
   }
   
@@ -55,25 +54,70 @@ struct beam_state {
   }
 
   FORCE_INLINE
-  tuple<u32, u64, bool> plan_move(u8 move) {
-    do_move(move);
-    u32 v = value();
+  tuple<u32, u64, bool> plan_move_src(u8 move) const {
+    u32 v = cost;
     u64 h = hash;
-    bool solved = is_solved();
-    undo_move(move);
+    
+    u32 a = src.tok_to_pos[0], b, c;
+    b = puzzle.rot[a][move];
+    c = puzzle.rot[a][(move+(src.direction?5:1))%6];
+
+    u32 xb = src.pos_to_tok[b];
+    u32 xc = src.pos_to_tok[c];
+
+    h ^= hash_pos(b, tgt.tok_to_pos[xb]);
+    h ^= hash_pos(c, tgt.tok_to_pos[xc]);
+    v -= weights.dist_weight[b][tgt.tok_to_pos[xb]];
+    v -= weights.dist_weight[c][tgt.tok_to_pos[xc]];
+
+    v += weights.dist_weight[c][tgt.tok_to_pos[xb]];
+    v += weights.dist_weight[a][tgt.tok_to_pos[xc]];
+    h ^= hash_pos(c, tgt.tok_to_pos[xb]);
+    h ^= hash_pos(a, tgt.tok_to_pos[xc]);
+
+    bool solved = v == 0 && src.direction != tgt.direction;
+    
     return {v,h,solved};
   }
-  
-  void do_move_src(u8 move, bool forward) {
-    u32 a = src.tok_to_pos[0], b, c;
+ 
+  FORCE_INLINE
+  tuple<u32, u64, bool> plan_move_tgt(u8 move) const {
+    u32 v = cost;
+    u64 h = hash;
+
+    u32 a = tgt.tok_to_pos[0], b, c;
+    b = puzzle.rot[a][move];
+    c = puzzle.rot[a][(move+(tgt.direction?5:1))%6];
+
+    u32 xb = tgt.pos_to_tok[b];
+    u32 xc = tgt.pos_to_tok[c];
+
+    h ^= hash_pos(src.tok_to_pos[xb], b);
+    h ^= hash_pos(src.tok_to_pos[xc], c);
+    v -= weights.dist_weight[src.tok_to_pos[xb]][b];
+    v -= weights.dist_weight[src.tok_to_pos[xc]][c];
     
-    if(src.direction == 0) {
-      b = puzzle.rot[a][move];
-      c = puzzle.rot[a][(move+1)%6];
-    }else{
-      b = puzzle.rot[a][move];
-      c = puzzle.rot[a][(move+5)%6];
-    }
+    v += weights.dist_weight[src.tok_to_pos[xb]][c];
+    v += weights.dist_weight[src.tok_to_pos[xc]][a];   
+    h ^= hash_pos(src.tok_to_pos[xb], c);
+    h ^= hash_pos(src.tok_to_pos[xc], a);
+
+    bool solved = v == 0 && src.direction != tgt.direction;
+    
+    return {v,h,solved};
+  }
+ 
+  FORCE_INLINE
+  tuple<u32, u64, bool> plan_move(u8 move) {
+    if(move < 6) return plan_move_src(move);
+    else return plan_move_tgt(move - 6);
+  }
+
+  FORCE_INLINE
+  void do_move_src(u8 move) {
+    u32 a = src.tok_to_pos[0], b, c;
+    b = puzzle.rot[a][move];
+    c = puzzle.rot[a][(move+(src.direction?5:1))%6];
 
     u32 xb = src.pos_to_tok[b];
     u32 xc = src.pos_to_tok[c];
@@ -98,16 +142,11 @@ struct beam_state {
     src.direction ^= 1;
   }
 
-  void do_move_tgt(u8 move, bool forward){
+  FORCE_INLINE
+  void do_move_tgt(u8 move){
     u32 a = tgt.tok_to_pos[0], b, c;
-      
-    if(tgt.direction == 0) {
-      b = puzzle.rot[a][move];
-      c = puzzle.rot[a][(move+1)%6];
-    }else{
-      b = puzzle.rot[a][move];
-      c = puzzle.rot[a][(move+5)%6];
-    }
+    b = puzzle.rot[a][move];
+    c = puzzle.rot[a][(move+(tgt.direction?5:1))%6];
 
     u32 xb = tgt.pos_to_tok[b];
     u32 xc = tgt.pos_to_tok[c];
@@ -132,15 +171,18 @@ struct beam_state {
     tgt.direction ^= 1;
   }
   
-  void do_move(u8 move, bool forward = true) {
-    if(move < 6) do_move_src(move, forward);
-    else do_move_tgt(move - 6, forward);
+  FORCE_INLINE
+  void do_move(u8 move) {
+    if(move < 6) do_move_src(move);
+    else do_move_tgt(move - 6);
   }
 
+  FORCE_INLINE
   void undo_move(u8 move) {
-    do_move(6*(move/6) + (move+3)%6, false);
+    do_move(6*(move/6) + (move+3)%6);
   }
 
+  FORCE_INLINE
   u32 value() const {
     return cost;
   }

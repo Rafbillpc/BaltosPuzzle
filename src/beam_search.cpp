@@ -82,7 +82,8 @@ void find_solution
   }
 }
 
-
+const u8 move_opposite[12] =
+  {3,4,5,0,1,2,9,10,11,6,7,8};
 
 void beam_search_instance::traverse_tour
 (beam_search_config const& config,
@@ -107,11 +108,11 @@ void beam_search_instance::traverse_tour
       stack_moves[nstack_moves] = edge-1;
       S.do_move(edge-1);
       if(edge-1 < 6) {
-        stack_last_move_src[nstack_moves+1] = edge-1;
+        stack_last_move_src[nstack_moves+1] = move_opposite[edge-1];
         stack_last_move_tgt[nstack_moves+1] = stack_last_move_tgt[nstack_moves];
       }else{
         stack_last_move_src[nstack_moves+1] = stack_last_move_src[nstack_moves];
-        stack_last_move_tgt[nstack_moves+1] = edge-1;
+        stack_last_move_tgt[nstack_moves+1] = move_opposite[edge-1];
       }
       nstack_moves += 1;
     }else{
@@ -130,9 +131,9 @@ void beam_search_instance::traverse_tour
             tour_next->push(1+stack_moves[ncommit]);
             ncommit += 1;
           }
-
-          FOR(m, 12) if((m+3)%6 != stack_last_move_src[nstack_moves] &&
-                        (m+3)%6 != stack_last_move_tgt[nstack_moves]) {
+          
+          UNROLL_FOR12(m) if(m != stack_last_move_src[nstack_moves] &&
+                             m != stack_last_move_tgt[nstack_moves]) {
             auto [v,h,solved] = S.plan_move(m);
             auto prev = hash_table[h&HASH_MASK];
             if(prev != h) {
