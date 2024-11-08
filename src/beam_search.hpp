@@ -4,6 +4,16 @@
 #include "eval.hpp"
 
 FORCE_INLINE
+u64 hash_hole_src(u32 x) {
+  return uint64_hash::hash_int(927648726487624ull + x);
+}
+
+FORCE_INLINE
+u64 hash_hole_tgt(u32 x) {
+  return uint64_hash::hash_int(298749827489724ull + x);
+}
+
+FORCE_INLINE
 u64 hash_pos(u32 x, u32 y) {
   return uint64_hash::hash_int(x * 4096 + y);
 }
@@ -12,37 +22,22 @@ struct beam_state {
   puzzle_state src, tgt;
 
   i32 cost;
-  u32 total_dist;
   u64 hash;
-
-  u8 nei_solved[MAX_SIZE];
-  i32 num_unsolved;
   
   void init() {
-    cost = 1;
-    total_dist = 0;
+    cost = 0;
     hash = rng.randomInt64();
-
-    num_unsolved = puzzle.size - 1;
-    FOR(u, puzzle.size) {
-      nei_solved[u] = 0;
-      cost += weights.nei_weight[0];
-    }
     
     FORU(u, 1, puzzle.size-1) {
       add_dist(u);
-    }
-
-    FOR(u, puzzle.size) {
-      if(src.pos_to_tok[u] == tgt.pos_to_tok[u] && src.pos_to_tok[u] != 0) {
-        add_solved_cell(u);
-      }
     }
   }
 
   FORCE_INLINE
   bool is_solved() const {
-    return num_unsolved == 0 && src.direction == tgt.direction;
+    return cost == 0 &&
+      src.tok_to_pos[0] == tgt.tok_to_pos[0] &&
+      src.direction == tgt.direction;
   }
   
   FORCE_INLINE
@@ -50,7 +45,6 @@ struct beam_state {
     u32 x = src.tok_to_pos[u];
     u32 y = tgt.tok_to_pos[u];
     cost -= weights.dist_weight[x][y];
-    total_dist -= puzzle.dist[x][y];
   }
 
   FORCE_INLINE
@@ -58,51 +52,19 @@ struct beam_state {
     u32 x = src.tok_to_pos[u];
     u32 y = tgt.tok_to_pos[u];
     cost += weights.dist_weight[x][y];
-    total_dist += puzzle.dist[x][y];
   }
 
   FORCE_INLINE
-  void rem_solved_cell(u32 u) {
-    num_unsolved += 1;
-    
-    cost -= weights.nei_weight[nei_solved[u]];
-    nei_solved[u] &= ~bit(6);
-    cost += weights.nei_weight[nei_solved[u]];
-    FOR(d, 6) {
-      auto v = puzzle.rot[u][d];
-      cost -= weights.nei_weight[nei_solved[v]];
-      nei_solved[v] &= ~bit(d);
-      cost += weights.nei_weight[nei_solved[v]];
-    }
-  }
-  
-  FORCE_INLINE
-  void add_solved_cell(u32 u) {
-    num_unsolved -= 1;
-    
-    cost -= weights.nei_weight[nei_solved[u]];
-    nei_solved[u] |= bit(6);
-    cost += weights.nei_weight[nei_solved[u]];
-    FOR(d, 6) {
-      auto v = puzzle.rot[u][d];
-      cost -= weights.nei_weight[nei_solved[v]];
-      nei_solved[v] |= bit(d);
-      cost += weights.nei_weight[nei_solved[v]];
-    }
-  }
-
-  FORCE_INLINE
-  tuple<u32, u32, u64, bool> plan_move(u8 move) {
+  tuple<u32, u64, bool> plan_move(u8 move) {
     do_move(move);
     u32 v = value();
-    u32 d = total_dist;
     u64 h = hash;
     bool solved = is_solved();
     undo_move(move);
-    return {v,d,h,solved};
+    return {v,h,solved};
   }
   
-  void do_move_src(u8 move) {
+  void do_move_src(u8 move, bool forward) {
     u32 a = src.tok_to_pos[0], b, c;
     
     if(src.direction == 0) {
@@ -116,12 +78,10 @@ struct beam_state {
     u32 xb = src.pos_to_tok[b];
     u32 xc = src.pos_to_tok[c];
 
-    rem_dist(xb);
-    rem_dist(xc);
     hash ^= hash_pos(b, tgt.tok_to_pos[xb]);
     hash ^= hash_pos(c, tgt.tok_to_pos[xc]);
-    if(b == tgt.tok_to_pos[xb]) rem_solved_cell(b);
-    if(c == tgt.tok_to_pos[xc]) rem_solved_cell(c);
+    rem_dist(xb);
+    rem_dist(xc);
 
     src.pos_to_tok[a]  = xc;
     src.pos_to_tok[b]  = 0;
@@ -130,17 +90,15 @@ struct beam_state {
     src.tok_to_pos[xb] = c;
     src.tok_to_pos[xc] = a;
 
-    add_dist(xc);
     add_dist(xb);
+    add_dist(xc);
     hash ^= hash_pos(c, tgt.tok_to_pos[xb]);
     hash ^= hash_pos(a, tgt.tok_to_pos[xc]);
-    if(c == tgt.tok_to_pos[xb]) add_solved_cell(c);
-    if(a == tgt.tok_to_pos[xc]) add_solved_cell(a);
 
     src.direction ^= 1;
   }
 
-  void do_move_tgt(u8 move){
+  void do_move_tgt(u8 move, bool forward){
     u32 a = tgt.tok_to_pos[0], b, c;
       
     if(tgt.direction == 0) {
@@ -153,13 +111,11 @@ struct beam_state {
 
     u32 xb = tgt.pos_to_tok[b];
     u32 xc = tgt.pos_to_tok[c];
-    
-    rem_dist(xb);
-    rem_dist(xc);    
+
     hash ^= hash_pos(src.tok_to_pos[xb], b);
     hash ^= hash_pos(src.tok_to_pos[xc], c);
-    if(src.tok_to_pos[xb] == b) rem_solved_cell(b);
-    if(src.tok_to_pos[xc] == c) rem_solved_cell(c);
+    rem_dist(xb);
+    rem_dist(xc);    
     
     tgt.pos_to_tok[a]  = xc;
     tgt.pos_to_tok[b]  = 0;
@@ -168,101 +124,49 @@ struct beam_state {
     tgt.tok_to_pos[xb] = c;
     tgt.tok_to_pos[xc] = a;
 
-    add_dist(xc);
     add_dist(xb);
+    add_dist(xc);
     hash ^= hash_pos(src.tok_to_pos[xb], c);
     hash ^= hash_pos(src.tok_to_pos[xc], a);
-    if(src.tok_to_pos[xb] == c) add_solved_cell(c);
-    if(src.tok_to_pos[xc] == a) add_solved_cell(a);
 
     tgt.direction ^= 1;
   }
   
-  void do_move(u8 move) {
-    if(move < 6) do_move_src(move);
-    else do_move_tgt(move - 6);
+  void do_move(u8 move, bool forward = true) {
+    if(move < 6) do_move_src(move, forward);
+    else do_move_tgt(move - 6, forward);
   }
 
   void undo_move(u8 move) {
-    do_move(6*(move/6) + (move+3)%6);
+    do_move(6*(move/6) + (move+3)%6, false);
   }
-
-  // u32 value() const {
-  //   // runtime_assert(cost >= 0);
-  //   return cost;
-  // }
 
   u32 value() const {
-    u32 v = 0;
-    FORU(u, 1, puzzle.size-1) {
-      u32 x = src.tok_to_pos[u];
-      u32 y = tgt.tok_to_pos[u];
-      v += weights.dist_weight[x][y];
-    }
-    FOR(u, puzzle.size) {
-      v += weights.nei_weight[nei_solved[u]];
-    }
-    FOR(u, puzzle.size) if(src.pos_to_tok[u] != 0) {
-      FOR(d, 3) {
-        auto v = puzzle.rot[u][d];
-        if(src.pos_to_tok[v] == 0) continue;
-        i32 a = puzzle.dist_reduced[u][tgt.tok_to_pos[src.pos_to_tok[u]]];
-        i32 b = puzzle.dist_reduced[v][tgt.tok_to_pos[src.pos_to_tok[v]]];
-        v += weights.src_edge_weight[d][a][b];
-      }
-    }
-    FOR(u, puzzle.size) if(tgt.pos_to_tok[u] != 0) {
-      FOR(d, 3) {
-        auto v = puzzle.rot[u][d];
-        if(tgt.pos_to_tok[v] == 0) continue;
-        i32 a = puzzle.dist_reduced[src.tok_to_pos[tgt.pos_to_tok[u]]][u];
-        i32 b = puzzle.dist_reduced[src.tok_to_pos[tgt.pos_to_tok[v]]][v];
-        v += weights.tgt_edge_weight[d][a][b];
-      }
-    }
-    FOR(u, puzzle.size) if(src.pos_to_tok[u] != 0 && tgt.pos_to_tok[u] != 0) {
-      i32 a = puzzle.dist_reduced[u][tgt.tok_to_pos[src.pos_to_tok[u]]];
-      i32 b = puzzle.dist_reduced[src.tok_to_pos[tgt.pos_to_tok[u]]][u];
-      v += weights.pair_weight[a][b];
-    }
-
-    return v;
+    return cost;
   }
 
-  void features(features_vec& V) const {
-    FOR(i, NUM_FEATURES) V[i] = 0;
-    FORU(u, 1, puzzle.size-1) {
-      u32 x = src.tok_to_pos[u];
-      u32 y = tgt.tok_to_pos[u];
-      V[puzzle.dist_feature[x][y]] += 1;
-    }
-    FOR(u, puzzle.size) {
-      V[nei_feature_key[nei_solved[u]]] += 1;
-    }
-    FOR(u, puzzle.size) if(src.pos_to_tok[u] != 0) {
-      FOR(d, 3) {
-        auto v = puzzle.rot[u][d];
-        if(src.pos_to_tok[v] == 0) continue;
-        i32 a = puzzle.dist_reduced[u][tgt.tok_to_pos[src.pos_to_tok[u]]];
-        i32 b = puzzle.dist_reduced[v][tgt.tok_to_pos[src.pos_to_tok[v]]];
-        V[src_edge_feature_key[d][a][b]] += 1;
+  void print() {
+    i32 sz = 1+log10(puzzle.size);
+    string spaces = "";
+    FOR(i, sz) spaces += ' ';
+  
+    i32 ix = 0;
+    FOR(u, 2*puzzle.n-1) {
+      u32 ncol = 2*puzzle.n-1 - abs(u-(puzzle.n-1));
+      FOR(i, abs(u-(puzzle.n-1))) cerr << spaces;
+      FOR(icol, ncol) {
+        auto x = puzzle.tgt_pos_to_tok[tgt.tok_to_pos[src.pos_to_tok[ix]]];
+        if(src.pos_to_tok[ix] == tgt.pos_to_tok[ix]) {
+          cout << "\033[1;32m" << setw(sz) << x << "\033[0m" << spaces;
+        }else{
+          cerr << setw(sz) << x << spaces;
+        }
+        ix += 1;
       }
-    }
-    FOR(u, puzzle.size) if(tgt.pos_to_tok[u] != 0) {
-      FOR(d, 3) {
-        auto v = puzzle.rot[u][d];
-        if(tgt.pos_to_tok[v] == 0) continue;
-        i32 a = puzzle.dist_reduced[src.tok_to_pos[tgt.pos_to_tok[u]]][u];
-        i32 b = puzzle.dist_reduced[src.tok_to_pos[tgt.pos_to_tok[v]]][v];
-        V[tgt_edge_feature_key[d][a][b]] += 1;
-      }
-    }
-    FOR(u, puzzle.size) if(src.pos_to_tok[u] != 0 && tgt.pos_to_tok[u] != 0) {
-      i32 a = puzzle.dist_reduced[u][tgt.tok_to_pos[src.pos_to_tok[u]]];
-      i32 b = puzzle.dist_reduced[src.tok_to_pos[tgt.pos_to_tok[u]]][u];
-      V[pair_feature_key[a][b]] += 1;
+      cerr << endl;
     }
   }
+
 };
 
 using euler_tour_edge = u8;
@@ -283,7 +187,6 @@ struct beam_search_config {
   bool print;
   u32  print_interval;
   u64  width;
-  f32  features_save_probability;
 
   u32 num_threads;
 };
@@ -291,24 +194,17 @@ struct beam_search_config {
 struct beam_search_instance {
   u64* hash_table;
   u32* histogram_heur;
-  u32* histogram_dist;
 
   u32 istep;
   
   u32 cutoff_heur;
   f32 cutoff_heur_keep_probability;
-  u32 cutoff_dist;
-  f32 cutoff_dist_keep_probability;
 
   u32 low_heur;
   u32 high_heur;
-  u32 low_dist;
-  u32 high_dist;
 
   u32 found_solution;
 
-  vector<tuple<i32, features_vec > >* saved_features;
-  
   u8 stack_moves[MAX_SOLUTION_SIZE];
   u8 stack_last_move_src[MAX_SOLUTION_SIZE];
   u8 stack_last_move_tgt[MAX_SOLUTION_SIZE];
@@ -323,18 +219,15 @@ struct beam_search_instance {
 
 struct beam_search_result {
   vector<u8> solution;
-  vector<tuple<i32, features_vec > > saved_features;
 };
 
 struct beam_search {
   beam_search_config config;
   vector<u64> hash_table;
   vector<u32> histogram_heur;
-  vector<u32> histogram_dist;
 
   vector<beam_search_instance> L_instances;
   vector<vector<u32>> L_histograms_heur;
-  vector<vector<u32>> L_histograms_dist;
 
   bool should_stop;
 

@@ -45,9 +45,9 @@ add_subdirectory(external/argparse)
 add_library(common
   src/header.cpp
   src/puzzle.cpp
+  src/find_perms.cpp
   src/beam_search.cpp
   src/eval.cpp
-  src/training.cpp
   src/solver.cpp
 )
 target_include_directories(common PUBLIC

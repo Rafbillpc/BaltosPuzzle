@@ -48,13 +48,7 @@ void puzzle_data::make(i32 n_) {
             if(di < (i32)dist[u][w]) {
               dist[u][w] = di;
 
-              i32 a = max(dx, dy);
-              i32 b = min(dx, dy);
-
-              if(a+b < 27) {
-                dist_feature[u][w] = dist_feature_key[a][b];
-                dist_reduced[u][w] = dist_reduced_key[x][a][b];
-              }
+              dist_eval[u][w] = (dx*dx+dx*dy+dy*dy) * 3 + (dx+dy) * 7;
             }
               
             w = rot[w][y];
@@ -64,14 +58,7 @@ void puzzle_data::make(i32 n_) {
       }
     }
   }
-
-  // FOR(i, size) FOR(j, size) {
-  //   auto [u,v] = dist_delta[i][j];
-  //   array<i32, 2> key = {u, v};
-  //   runtime_assert(from_coord.count(key));
-  //   dist_key[i][j] = from_coord[key];
-  // }
-  
+ 
   FOR(i, size) {
     tgt_pos_to_tok[i] = (i == (i32)center ? 0 : (i < (i32)center ? 1+i : i));
   }
