@@ -120,8 +120,8 @@ void beam_search_instance::traverse_tour
             ncommit += 1;
           }
 
-          FOR(m, 12) if(m != stack_last_move_src[nstack_moves] &&
-                        m != stack_last_move_tgt[nstack_moves]) {
+          FOR(m, 12) if((m+3)%6 != stack_last_move_src[nstack_moves] &&
+                        (m+3)%6 != stack_last_move_tgt[nstack_moves]) {
             auto [v,h,solved] = S.plan_move(m);
             auto prev = hash_table[h&HASH_MASK];
             if(prev != h) {
