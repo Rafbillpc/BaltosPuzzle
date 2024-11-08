@@ -31,9 +31,20 @@ euler_tour get_new_tree(){
   return tour;
 }
 
+void increase_tree_size() {
+  lock_guard<mutex> lock(bs_mutex);
+  tree_size *= 2;
+  for(auto t : tree_pool) delete[] t.data;
+  tree_pool.clear();
+}
+
 void free_tree(euler_tour tree) {
   lock_guard<mutex> lock(bs_mutex);
-  tree_pool.pb(tree);
+  if(tree.size == tree_size) {
+    tree_pool.pb(tree);
+  }else{
+    delete[] tree.data;
+  }
 }
 
 
@@ -194,8 +205,10 @@ beam_search::search(beam_state const& initial_state) {
 
     u32 low_heur = max_heur, high_heur = 0;
     bool found_solution = false;
-
+    
     {
+      if(tours_current.size() >= 128) increase_tree_size();
+      
       sort(all(tours_current), [&](auto const& t1, auto const& t2) {
         return t1.size < t2.size;
       });
