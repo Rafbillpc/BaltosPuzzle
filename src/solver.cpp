@@ -55,6 +55,7 @@ void solve
       .print = true,
       .print_interval = 1,
       .width = width,
+      .features_save_probability = 0.0,
       .num_threads = (u32)omp_get_max_threads()
     });
 

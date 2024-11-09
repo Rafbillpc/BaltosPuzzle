@@ -1,7 +1,4 @@
 #include "puzzle.hpp"
-#include "eval.hpp"
-
-puzzle_data puzzle;
 
 void puzzle_data::make(i32 n_) {
   n = n_;
@@ -47,7 +44,7 @@ void puzzle_data::make(i32 n_) {
 
             if(di < (i32)dist[u][w]) {
               dist[u][w] = di;
-
+              dist_pair[u][w] = {max(dx,dy),min(dx,dy)};
               dist_eval[u][w] = (dx*dx+dx*dy+dy*dy) * 3 + (dx+dy) * 7;
             }
               

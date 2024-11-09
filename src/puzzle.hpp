@@ -14,6 +14,7 @@ struct puzzle_data {
 
   u32 rot[MAX_SIZE][6];
   u32 dist[MAX_SIZE][MAX_SIZE];
+  array<i32, 2> dist_pair[MAX_SIZE][MAX_SIZE];
   u32 dist_eval[MAX_SIZE][MAX_SIZE];
   
   array<i32, 2> to_coord[MAX_SIZE];
@@ -25,7 +26,7 @@ struct puzzle_data {
   void make(i32 n);
 };
 
-extern puzzle_data puzzle;
+inline puzzle_data puzzle;
 
 struct puzzle_state {
   u32 pos_to_tok[MAX_SIZE];

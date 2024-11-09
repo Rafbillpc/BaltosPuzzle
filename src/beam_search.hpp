@@ -38,15 +38,7 @@ struct beam_state {
     return cost == 0 &&
       src.direction == tgt.direction;
   }
-  
-  FORCE_INLINE
-  void rem_dist(u32 u) {
-    u32 x = src.tok_to_pos[u];
-    u32 y = tgt.tok_to_pos[u];
-    cost -= weights.dist_weight[x][y];
-  }
 
-  FORCE_INLINE
   void add_dist(u32 u) {
     u32 x = src.tok_to_pos[u];
     u32 y = tgt.tok_to_pos[u];
@@ -124,8 +116,8 @@ struct beam_state {
 
     hash ^= hash_pos(b, tgt.tok_to_pos[xb]);
     hash ^= hash_pos(c, tgt.tok_to_pos[xc]);
-    rem_dist(xb);
-    rem_dist(xc);
+    cost -= weights.dist_weight[b][tgt.tok_to_pos[xb]];
+    cost -= weights.dist_weight[c][tgt.tok_to_pos[xc]];
 
     src.pos_to_tok[a]  = xc;
     src.pos_to_tok[b]  = 0;
@@ -134,8 +126,8 @@ struct beam_state {
     src.tok_to_pos[xb] = c;
     src.tok_to_pos[xc] = a;
 
-    add_dist(xb);
-    add_dist(xc);
+    cost += weights.dist_weight[c][tgt.tok_to_pos[xb]];
+    cost += weights.dist_weight[a][tgt.tok_to_pos[xc]];
     hash ^= hash_pos(c, tgt.tok_to_pos[xb]);
     hash ^= hash_pos(a, tgt.tok_to_pos[xc]);
 
@@ -153,8 +145,8 @@ struct beam_state {
 
     hash ^= hash_pos(src.tok_to_pos[xb], b);
     hash ^= hash_pos(src.tok_to_pos[xc], c);
-    rem_dist(xb);
-    rem_dist(xc);    
+    cost -= weights.dist_weight[src.tok_to_pos[xb]][b];
+    cost -= weights.dist_weight[src.tok_to_pos[xc]][c];
     
     tgt.pos_to_tok[a]  = xc;
     tgt.pos_to_tok[b]  = 0;
@@ -163,8 +155,8 @@ struct beam_state {
     tgt.tok_to_pos[xb] = c;
     tgt.tok_to_pos[xc] = a;
 
-    add_dist(xb);
-    add_dist(xc);
+    cost += weights.dist_weight[src.tok_to_pos[xb]][c];
+    cost += weights.dist_weight[src.tok_to_pos[xc]][a];
     hash ^= hash_pos(src.tok_to_pos[xb], c);
     hash ^= hash_pos(src.tok_to_pos[xc], a);
 
@@ -187,6 +179,16 @@ struct beam_state {
     return cost;
   }
 
+  void features(features_vec& V) const {
+    FOR(i, NUM_FEATURES) V[i] = 0;
+    FORU(u, 1, puzzle.size-1) {
+      u32 x = src.tok_to_pos[u];
+      u32 y = tgt.tok_to_pos[u];
+      auto p = puzzle.dist_pair[x][y];
+      V[dist_feature_key[p[0]][p[1]]] += 1;
+    }
+  }
+    
   void print() {
     i32 sz = 1+log10(puzzle.size);
     string spaces = "";
@@ -229,8 +231,9 @@ struct beam_search_config {
   bool print;
   u32  print_interval;
   u64  width;
-
-  u32 num_threads;
+  f32  features_save_probability;
+  
+  u32  num_threads;
 };
 
 struct beam_search_instance {
@@ -251,6 +254,8 @@ struct beam_search_instance {
   u8 stack_last_move_src[MAX_SOLUTION_SIZE];
   u8 stack_last_move_tgt[MAX_SOLUTION_SIZE];
 
+  vector<tuple<i32, features_vec > >* saved_features;
+
   void traverse_tour
   (beam_search_config const& config,
    beam_state S,
@@ -261,6 +266,7 @@ struct beam_search_instance {
 
 struct beam_search_result {
   vector<u8> solution;
+  vector<tuple<i32, features_vec > > saved_features;
 };
 
 struct beam_search {

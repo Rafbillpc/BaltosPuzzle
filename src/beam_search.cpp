@@ -3,7 +3,7 @@
 #include <mutex>
 #include <omp.h>
 
-const u64 HASH_SIZE = 1ull<<30;
+const u64 HASH_SIZE = 1ull<<25;
 const u64 HASH_MASK = HASH_SIZE-1;
 
 const i64 MIN_TREE_SIZE = 1<<17;
@@ -102,6 +102,8 @@ void beam_search_instance::traverse_tour
 
   f32 cutoff_heur_running = 1.0 + rng.randomDouble();
 
+  f32 feature_save_running = rng.randomDouble();
+
   FOR(iedge, tour_current.size) {
     u8 edge = tour_current[iedge];
     if(edge > 0) {
@@ -117,6 +119,17 @@ void beam_search_instance::traverse_tour
       nstack_moves += 1;
     }else{
       if(nstack_moves == istep) {
+
+        if(config.features_save_probability > 0.0) {
+          feature_save_running += config.features_save_probability;
+          if(feature_save_running > 1.0) {
+            feature_save_running -= 1.0;
+            saved_features->eb();
+            get<0>(saved_features->back()) = istep;
+            S.features(get<1>(saved_features->back()));
+          }
+        }
+        
         auto v = S.value();
         bool keep = v < cutoff_heur;
         if(v == cutoff_heur) {
@@ -189,12 +202,18 @@ beam_search::search(beam_state const& initial_state) {
   u32 max_heur = initial_state.value() * 1.2 + 1024;
   if(histogram_heur.size() < max_heur) histogram_heur.resize(max_heur);
 
+  if(config.features_save_probability > 0.0) {
+    runtime_assert(config.num_threads == 1);
+  }
+  
   vector<euler_tour> tours_current;
   tours_current.eb(get_new_tree());
   tours_current.back().push(0);
 
   u32 cutoff_heur = max_heur;
   f32 cutoff_heur_keep_probability = 1.0;
+  
+  vector<tuple<i32, features_vec > > saved_features;
 
   for(u32 istep = 0;; ++istep) {
     if(should_stop || istep > MAX_SOLUTION_SIZE - 10) {
@@ -246,6 +265,7 @@ beam_search::search(beam_state const& initial_state) {
           L_instance.low_heur = max_heur;
           L_instance.high_heur = 0;
           L_instance.found_solution = false;
+          L_instance.saved_features = &saved_features;
         
           L_instance.traverse_tour
             (config, initial_state, tour_current, L_tours_next);
@@ -322,10 +342,9 @@ beam_search::search(beam_state const& initial_state) {
       beam_state T = initial_state;
       for(auto move : solution) T.do_move(move);
 
-      T.print();
-      
       return beam_search_result {
-        .solution = solution
+        .solution = solution,
+        .saved_features = saved_features,
       };
     }
   }
