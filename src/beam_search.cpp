@@ -214,9 +214,12 @@ beam_search::search(beam_state const& initial_state) {
   f32 cutoff_heur_keep_probability = 1.0;
   
   vector<tuple<i32, features_vec > > saved_features;
-
+  u32 best_low = max_heur;
+  u32 last_improvement = 0;
+  
   for(u32 istep = 0;; ++istep) {
-    if(should_stop || istep > MAX_SOLUTION_SIZE - 10) {
+    if(should_stop || istep > MAX_SOLUTION_SIZE - 10 ||
+       istep > last_improvement + 100) {
       debug("FAIL");
       return beam_search_result{};
     }
@@ -314,6 +317,11 @@ beam_search::search(beam_state const& initial_state) {
     i64 total_size = 0;
     for(auto tour : tours_current) {
       total_size += tour.size;
+    }
+
+    if(low_heur < best_low) {
+      best_low = low_heur;
+      last_improvement = istep;
     }
 
     if(config.print && (istep % config.print_interval == 0)) {

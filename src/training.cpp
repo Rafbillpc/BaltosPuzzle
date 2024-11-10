@@ -1,8 +1,9 @@
 #include "training.hpp"
 #include "beam_search.hpp"
 #include "eval.hpp"
-#include <fstream>
 #include <omp.h>
+
+const i32 BATCH_SIZE = 1<<16;
 
 f64 sigmoid(f64 z) {
   return 1.0 / (1.0 + std::exp(-z));
@@ -31,7 +32,7 @@ vector<training_sample> gather_samples(training_config const& config) {
           .print_interval = 1000,
           .width = config.gather_width,
           .features_save_probability = config.features_save_probability,
-          .num_threads = 1
+          .num_threads = 1,
         });
     }
   }
@@ -62,15 +63,21 @@ vector<training_sample> gather_samples(training_config const& config) {
       state.init();
     
       auto result = search.search(state);
-      
+
+      u64 size;
+      u64 from;
 #pragma omp critical
       {
-        auto size = result.solution.size();
-
+        size = result.solution.size();
+        from = samples.size();
         if(size > 0) {
           total_size += size;
           total_size2 += (f64)size * size;
           total_count += 1;
+ 
+          samples.resize(from + result.saved_features.size());
+
+          if(samples.size() / 100'000 != from / 100'000) debug(samples.size());
 
           i32 curi = 0;
           for(auto [i,v] : result.saved_features) {
@@ -80,12 +87,11 @@ vector<training_sample> gather_samples(training_config const& config) {
             }
             features_vec v1;
             state.features(v1);
-            samples.eb(v1, v);
-            if(samples.size() % 10'000 == 0) debug(samples.size());
+            samples[from] = training_sample(v1, v);
+            from += 1;
           }
         }
       }
-
     }
   }
   
@@ -115,13 +121,17 @@ void update_weights(training_config const& config,
   f64 eps = 1e-8;
   f64 beta1 = 0.9, beta2 = 0.999;
   f64 lambda = 1e-7;
- 
-  i32 time = 0;
-  while(1) {
-    time += 1;
+  
+  vector<training_sample> batch_samples(BATCH_SIZE);
+  
+  FOR(iter, config.training_iters) {
+    f64 alpha = alpha0 * pow(1e-1, 1.0 * iter / config.training_iters);
 
-    f64 alpha = alpha0 * pow(0.999, time);
-
+#pragma omp parallel for schedule(static, 512)
+    FOR(i, BATCH_SIZE) {
+      batch_samples[i] = rng.sample(samples);
+    }
+    
     // compute gradients
     vector<f64> g(NUM_FEATURES);
     f64 total_loss = 0;
@@ -131,8 +141,8 @@ void update_weights(training_config const& config,
       f64 L_total_loss = 0;
 
 #pragma omp for
-      FOR(isample, samples.size()) {
-        auto const& sample = samples[isample];
+      FOR(isample, BATCH_SIZE) {
+        auto const& sample = batch_samples[isample];
         f64 value = 0.0;
         FOR(i, NUM_FEATURES) {
           value += sample.features[i] * w[i];
@@ -153,8 +163,8 @@ void update_weights(training_config const& config,
         total_loss += L_total_loss;
       }
     }
-    total_loss /= samples.size();
-    FOR(i, NUM_FEATURES) g[i] /= samples.size();
+    total_loss /= BATCH_SIZE;
+    FOR(i, NUM_FEATURES) g[i] /= BATCH_SIZE;
 
     // L2-reg
     FOR(i, NUM_FEATURES) {
@@ -174,25 +184,27 @@ void update_weights(training_config const& config,
       max_delta = max(max_delta, abs(delta));
     }
     FOR(i, NUM_FEATURES) w[i] = max(w[i], 0.0);
-    w[0] = 0;
+    w[dist_feature_key[0][0]] = 0;
+    w[nei_feature_key[0]] = 0;
+
+    FOR(u, puzzle.n) {
+      FOR(v, u+1) if(u+v < puzzle.n) {
+        if(u > 0 && v < u) w[dist_feature_key[u][v]] = max(w[dist_feature_key[u][v]], w[dist_feature_key[u-1][v]]);
+        if(v > 0) w[dist_feature_key[u][v]] = max(w[dist_feature_key[u][v]], w[dist_feature_key[u][v-1]]);
+      }
+    }
     
     // printing
-    if(time < 10 || time % 10 == 0) {
+    if(iter % 100 == 99) {
       cerr
-        << "time = " << setw(4) << time
+        << "time = " << setw(4) << (iter+1)
         << ", lr = " << fixed << setprecision(6) << alpha
         << ", loss = " << fixed << setprecision(6) << total_loss
         << ", max = " << fixed << setprecision(6) << max_delta
         << endl;
     }
-
-    if(max_delta < 1e-3) break;
   }
-
-  f64 min_weight = w[0];
-  FOR(i, NUM_FEATURES) min_weight = min(min_weight, w[i]);
-  FOR(i, NUM_FEATURES) w[i] -= min_weight;
-  
+ 
   {
     cerr << "Values" << endl;
     cerr << "DIST:" << endl;
@@ -203,11 +215,12 @@ void update_weights(training_config const& config,
       }
       cerr << endl;
     }
-    // FOR(i, NUM_FEATURES_NEI) {
-    //   cerr << setw(6) << setprecision(3) << fixed
-    //        << w[NUM_FEATURES_DIST + i] << " ";
-    // }
-    // cerr << endl;
+    cerr << "NEI:" << endl;
+    FOR(u, bit(6)) {
+        cerr << setw(5) << setprecision(2) << fixed
+             << w[nei_feature_key[u]] << " ";
+    }
+    cerr << endl;
   }
 
   if(!config.output.empty()) {
@@ -220,8 +233,9 @@ void update_weights(training_config const& config,
 }
 
 void training_loop(training_config const& config) {
-  while(1) {
+  FOR(step, config.steps) {
     auto samples = gather_samples(config);
+    runtime_assert(samples.size() > BATCH_SIZE);
     update_weights(config, samples);
   }
 }

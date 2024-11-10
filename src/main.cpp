@@ -19,6 +19,14 @@ int main(int argc, char** argv) {
   argparse::ArgumentParser train_cmd("train");
   program.add_subparser(train_cmd);
 
+  train_cmd.add_argument("--steps")
+    .scan<'u', u32>()
+    .default_value(1);
+ 
+  train_cmd.add_argument("--iters")
+    .scan<'u', u32>()
+    .default_value(1000);
+
   train_cmd.add_argument("--width")
     .scan<'u', u32>()
     .default_value(1u<<10);
@@ -65,14 +73,16 @@ int main(int argc, char** argv) {
 
   string load_weights = program.get("load");
   if(!load_weights.empty()) {
-    // ifstream is(load_weights);
-    // runtime_assert(is.good());
-    // weights_vec w;
-    // is.read((char*)&w, sizeof(w));
-    // weights.from_weights(w);
+    ifstream is(load_weights);
+    runtime_assert(is.good());
+    weights_vec w;
+    is.read((char*)&w, sizeof(w));
+    weights.from_weights(w);
   }
 
   if(program.is_subcommand_used(train_cmd)) {
+    u32 steps = train_cmd.get<u32>("steps");
+    u32 iters = train_cmd.get<u32>("iters");
     bool print = train_cmd.get<bool>("print");
     u32 width = train_cmd.get<u32>("width");
     u32 count = train_cmd.get<u32>("count");
@@ -81,10 +91,12 @@ int main(int argc, char** argv) {
     string output = train_cmd.get("output");
     
     auto config = training_config {
+      .steps = steps,
       .print = print,
       .gather_width = width,
       .gather_count = count,
       .features_save_probability = ratio,
+      .training_iters = iters,
       .output = output,
     };
     
