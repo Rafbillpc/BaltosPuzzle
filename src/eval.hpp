@@ -1,4 +1,5 @@
 #pragma once
+#include "header.hpp"
 #include "puzzle.hpp"
 
 const f32 EVAL_SCALE = 64;
@@ -25,5 +26,38 @@ struct weights_t {
 };
 
 inline weights_t weights;
+
+struct cost_t {
+  i32 cost;
+
+  void reset() {
+    cost = 0;
+  }
+  
+  FORCE_INLINE
+  void add_dist(i32 x, i32 y) {
+    cost += weights.dist_weight[x][y];
+  }
+  
+  FORCE_INLINE
+  void rem_dist(i32 x, i32 y) {
+    cost -= weights.dist_weight[x][y];
+  }
+
+  FORCE_INLINE
+  void add_nei(i32 x) {
+    cost += weights.nei_weight[x];
+  }
+  
+  FORCE_INLINE
+  void rem_nei(i32 x) {
+    cost -= weights.nei_weight[x];
+  }
+  
+  FORCE_INLINE
+  i32 eval() const {
+    return cost;
+  }
+};
 
 void init_eval();

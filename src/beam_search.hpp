@@ -21,7 +21,7 @@ u64 hash_pos(u32 x, u32 y) {
 struct beam_state {
   puzzle_state src, tgt;
 
-  i32 cost;
+  cost_t cost;
   u64 hash;
   
   u32 num_unsolved;
@@ -29,11 +29,11 @@ struct beam_state {
   u8 cell_nei_solved[MAX_SIZE];
   
   void init() {
-    cost = 0;
+    cost.reset();
     hash = rng.randomInt64();
 
     num_unsolved = puzzle.size-1;
-    cost -= weights.nei_weight[bit(6)-1];
+    cost.rem_nei(bit(6)-1);
 
     FOR(u, puzzle.size) {
       cell_solved[u] = 0;
@@ -59,22 +59,22 @@ struct beam_state {
   void add_dist(u32 u) {
     u32 x = src.tok_to_pos[u];
     u32 y = tgt.tok_to_pos[u];
-    cost += weights.dist_weight[x][y];
+    cost.add_dist(x,y);
   }
 
   FORCE_INLINE
   void add_solved(u32 u) {
     num_unsolved -= 1;
     cell_solved[u] = 1;
-    cost -= weights.nei_weight[cell_nei_solved[u]];
+    cost.rem_nei(cell_nei_solved[u]);
     FOR(d, 6) {
       auto v = puzzle.rot[u][d];
       if(!cell_solved[v]) {
-        cost -= weights.nei_weight[cell_nei_solved[v]];
-      }
-      cell_nei_solved[v] ^= bit(d);
-      if(!cell_solved[v]) {
-        cost += weights.nei_weight[cell_nei_solved[v]];
+        cost.rem_nei(cell_nei_solved[v]);
+        cell_nei_solved[v] ^= bit(d);
+        cost.add_nei(cell_nei_solved[v]);
+      }else{
+        cell_nei_solved[v] ^= bit(d);
       }
     }
   }
@@ -86,14 +86,14 @@ struct beam_state {
     FOR(d, 6) {
       auto v = puzzle.rot[u][d];
       if(!cell_solved[v]) {
-        cost -= weights.nei_weight[cell_nei_solved[v]];
-      }
-      cell_nei_solved[v] ^= bit(d);
-      if(!cell_solved[v]) {
-        cost += weights.nei_weight[cell_nei_solved[v]];
+        cost.rem_nei(cell_nei_solved[v]);
+        cell_nei_solved[v] ^= bit(d);
+        cost.add_nei(cell_nei_solved[v]);
+      }else{
+        cell_nei_solved[v] ^= bit(d);
       }
     }
-    cost += weights.nei_weight[cell_nei_solved[u]];
+    cost.add_nei(cell_nei_solved[u]);
   }
   
   // FORCE_INLINE
@@ -152,14 +152,11 @@ struct beam_state {
  
   FORCE_INLINE
   tuple<u32, u64, bool> plan_move(u8 move) {
-    auto v0 = value();
     do_move(move);
     auto v = value();
     auto h = hash;
     auto s = is_solved();
-    runtime_assert(v >= 0);
     undo_move(move);
-    runtime_assert(v0 == value());
     return {v,h,s};
     
     // if(move < 6) return plan_move_src(move);
@@ -177,8 +174,8 @@ struct beam_state {
 
     hash ^= hash_pos(b, tgt.tok_to_pos[xb]);
     hash ^= hash_pos(c, tgt.tok_to_pos[xc]);
-    cost -= weights.dist_weight[b][tgt.tok_to_pos[xb]];
-    cost -= weights.dist_weight[c][tgt.tok_to_pos[xc]];
+    cost.rem_dist(b, tgt.tok_to_pos[xb]);
+    cost.rem_dist(c, tgt.tok_to_pos[xc]);
     if(b == tgt.tok_to_pos[xb]) rem_solved(b);
     if(c == tgt.tok_to_pos[xc]) rem_solved(c);
 
@@ -191,8 +188,8 @@ struct beam_state {
 
     if(c == tgt.tok_to_pos[xb]) add_solved(c);
     if(a == tgt.tok_to_pos[xc]) add_solved(a);
-    cost += weights.dist_weight[c][tgt.tok_to_pos[xb]];
-    cost += weights.dist_weight[a][tgt.tok_to_pos[xc]];
+    cost.add_dist(c, tgt.tok_to_pos[xb]);
+    cost.add_dist(a, tgt.tok_to_pos[xc]);
     hash ^= hash_pos(c, tgt.tok_to_pos[xb]);
     hash ^= hash_pos(a, tgt.tok_to_pos[xc]);
 
@@ -210,8 +207,8 @@ struct beam_state {
 
     hash ^= hash_pos(src.tok_to_pos[xb], b);
     hash ^= hash_pos(src.tok_to_pos[xc], c);
-    cost -= weights.dist_weight[src.tok_to_pos[xb]][b];
-    cost -= weights.dist_weight[src.tok_to_pos[xc]][c];
+    cost.rem_dist(src.tok_to_pos[xb], b);
+    cost.rem_dist(src.tok_to_pos[xc], c);
     if(src.tok_to_pos[xb] == b) rem_solved(b);
     if(src.tok_to_pos[xc] == c) rem_solved(c);
     
@@ -224,8 +221,8 @@ struct beam_state {
     
     if(src.tok_to_pos[xb] == c) add_solved(c);
     if(src.tok_to_pos[xc] == a) add_solved(a);
-    cost += weights.dist_weight[src.tok_to_pos[xb]][c];
-    cost += weights.dist_weight[src.tok_to_pos[xc]][a];
+    cost.add_dist(src.tok_to_pos[xb], c);
+    cost.add_dist(src.tok_to_pos[xc], a);
     hash ^= hash_pos(src.tok_to_pos[xb], c);
     hash ^= hash_pos(src.tok_to_pos[xc], a);
 
@@ -245,7 +242,7 @@ struct beam_state {
 
   FORCE_INLINE
   i32 value() const {
-    return cost;
+    return cost.eval();
   }
 
   void features(features_vec& V) const {
