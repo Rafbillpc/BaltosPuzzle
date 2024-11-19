@@ -258,6 +258,30 @@ struct beam_state {
         V[nei_feature_key[cell_nei_solved[u]]] += 1;
       }
     }
+    i32 n2 = 0, n3 = 0;
+    FOR(a, puzzle.size) {
+      if(src.pos_to_tok[a] == 0) continue;
+      auto b = tgt.tok_to_pos[src.pos_to_tok[a]];
+      if(puzzle.dist[a][b] != 1) continue;
+      if(src.pos_to_tok[b] == 0) continue;
+      auto c = tgt.tok_to_pos[src.pos_to_tok[b]];
+      if(puzzle.dist[b][c] != 1) continue;
+      if(c == (u32)a) {
+        n2 += 1;
+        continue;
+      }
+      if(src.pos_to_tok[c] == 0) continue;
+      auto d = tgt.tok_to_pos[src.pos_to_tok[c]];
+      if(puzzle.dist[c][d] != 1) continue;
+      if(d == (u32)a) {
+        n3 += 1;
+        continue;
+      }
+    }
+    runtime_assert(n2 % 2 == 0);
+    runtime_assert(n3 % 3 == 0);
+    V[cycle2_feature_key] += n2/2;
+    V[cycle3_feature_key] += n3/3;
   }
     
   void print() {

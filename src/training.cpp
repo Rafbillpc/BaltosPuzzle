@@ -210,7 +210,7 @@ void update_weights(training_config const& config,
     cerr << "DIST:" << endl;
     FOR(u, puzzle.n) {
       FOR(v, u+1) if(u+v < puzzle.n) {
-        cerr << setw(6) << setprecision(3) << fixed
+        cerr << setw(5) << setprecision(2) << fixed
              << w[dist_feature_key[u][v]] << " ";
       }
       cerr << endl;
@@ -220,6 +220,10 @@ void update_weights(training_config const& config,
         cerr << setw(5) << setprecision(2) << fixed
              << w[nei_feature_key[u]] << " ";
     }
+    cerr << "CYCLE2:" << setw(5) << setprecision(2) << fixed
+         << w[cycle2_feature_key] << endl;
+    cerr << "CYCLE3:" << setw(5) << setprecision(2) << fixed
+         << w[cycle3_feature_key] << endl;
     cerr << endl;
   }
 
