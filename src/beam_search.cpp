@@ -3,10 +3,10 @@
 #include <mutex>
 #include <omp.h>
 
-const u64 HASH_SIZE = 1ull<<26;
+const u64 HASH_SIZE = 1ull<<28;
 const u64 HASH_MASK = HASH_SIZE-1;
 
-const i64 MIN_TREE_SIZE = 1<<17;
+const i64 MIN_TREE_SIZE = 1<<20;
 i64 tree_size = MIN_TREE_SIZE;
 
 mutex bs_mutex;
@@ -216,6 +216,8 @@ beam_search::search(beam_state const& initial_state) {
   vector<tuple<i32, features_vec > > saved_features;
   u32 best_low = max_heur;
   u32 last_improvement = 0;
+
+  vector<beam_search_result_entry> graph;
   
   for(u32 istep = 0;; ++istep) {
     if(should_stop || istep > MAX_SOLUTION_SIZE - 10 ||
@@ -324,6 +326,12 @@ beam_search::search(beam_state const& initial_state) {
       last_improvement = istep;
     }
 
+    graph.pb(beam_search_result_entry {
+        .step     = (i32)istep,
+        .min_cost = low_heur,
+        .avg_cost = (f32)average_heur,
+      });
+
     if(config.print && (istep % config.print_interval == 0)) {
 #pragma omp critical
       {
@@ -353,6 +361,7 @@ beam_search::search(beam_state const& initial_state) {
       return beam_search_result {
         .solution = solution,
         .saved_features = saved_features,
+        .graph = graph,
       };
     }
   }

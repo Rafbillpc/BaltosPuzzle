@@ -127,9 +127,16 @@ void update_weights(training_config const& config,
   FOR(iter, config.training_iters) {
     f64 alpha = alpha0 * pow(1e-1, 1.0 * iter / config.training_iters);
 
+    bool whole_batch = iter > ((i32)config.training_iters - 64);
+    i32 batch_size = whole_batch ? samples.size() : BATCH_SIZE;
+
+    if(whole_batch) {
+      batch_samples = samples;
+    }else{
 #pragma omp parallel for schedule(static, 512)
-    FOR(i, BATCH_SIZE) {
-      batch_samples[i] = rng.sample(samples);
+      FOR(i, BATCH_SIZE) {
+        batch_samples[i] = rng.sample(samples);
+      }
     }
     
     // compute gradients
@@ -141,7 +148,7 @@ void update_weights(training_config const& config,
       f64 L_total_loss = 0;
 
 #pragma omp for
-      FOR(isample, BATCH_SIZE) {
+      FOR(isample, batch_size) {
         auto const& sample = batch_samples[isample];
         f64 value = 0.0;
         FOR(i, NUM_FEATURES) {
@@ -163,8 +170,8 @@ void update_weights(training_config const& config,
         total_loss += L_total_loss;
       }
     }
-    total_loss /= BATCH_SIZE;
-    FOR(i, NUM_FEATURES) g[i] /= BATCH_SIZE;
+    total_loss /= batch_size;
+    FOR(i, NUM_FEATURES) g[i] /= batch_size;
 
     // L2-reg
     FOR(i, NUM_FEATURES) {
@@ -195,7 +202,7 @@ void update_weights(training_config const& config,
     }
     
     // printing
-    if(iter % 100 == 99) {
+    if(iter % 100 == 99 || whole_batch) {
       cerr
         << "time = " << setw(4) << (iter+1)
         << ", lr = " << fixed << setprecision(6) << alpha
@@ -220,10 +227,6 @@ void update_weights(training_config const& config,
         cerr << setw(5) << setprecision(2) << fixed
              << w[nei_feature_key[u]] << " ";
     }
-    cerr << "CYCLE2:" << setw(5) << setprecision(2) << fixed
-         << w[cycle2_feature_key] << endl;
-    cerr << "CYCLE3:" << setw(5) << setprecision(2) << fixed
-         << w[cycle3_feature_key] << endl;
     cerr << endl;
   }
 

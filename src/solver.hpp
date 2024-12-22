@@ -5,4 +5,5 @@
 void solve
 (puzzle_state const& initial_state,
  u32 width,
- u32 dirs);
+ u32 dirs,
+ string const& graph_filename);

@@ -49,7 +49,8 @@ void save_solution
 void solve
 (puzzle_state const& initial_state,
  u32 width,
- u32 dirs) {
+ u32 dirs,
+ string const& graph_filename) {
 
   auto search = make_unique<beam_search>(beam_search_config {
       .print = true,
@@ -68,5 +69,13 @@ void solve
   
   auto result = search->search(state);
   save_solution(dirs, result.solution);
+  if(!graph_filename.empty()) {
+    ofstream os(graph_filename);
+    for(auto p : result.graph) {
+      os << p.step << ' ' << p.min_cost << ' ' << p.avg_cost << endl;
+    }
+    os.flush();
+    os.close();
+  }
 }
 

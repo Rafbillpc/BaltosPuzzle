@@ -7,8 +7,6 @@ void weights_t::init(){
   FOR(m, 1<<6) {
     nei_weight[m] = 0;
   }
-  cycle2_weight = 0;
-  cycle3_weight = 0;
 }
 
 void weights_t::from_weights(weights_vec const& w) {
@@ -19,8 +17,6 @@ void weights_t::from_weights(weights_vec const& w) {
   FOR(m, bit(6)) {
     nei_weight[m] = EVAL_SCALE * w[nei_feature_key[m]];
   }
-  cycle2_weight = EVAL_SCALE * w[cycle2_feature_key];
-  cycle3_weight = EVAL_SCALE * w[cycle3_feature_key];
 }
 
 void init_features() {
@@ -53,11 +49,6 @@ void init_features() {
   runtime_assert(next_feature ==
                  NUM_FEATURES_DIST +
                  NUM_FEATURES_NEI);
-
-  runtime_assert(next_feature == cycle2_feature_key);
-  next_feature++;
-  runtime_assert(next_feature == cycle3_feature_key);
-  next_feature++;
   
   runtime_assert(next_feature ==
                  NUM_FEATURES);

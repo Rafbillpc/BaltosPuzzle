@@ -56,6 +56,9 @@ int main(int argc, char** argv) {
   solve_cmd.add_argument("--dir")
     .scan<'u', u32>()
     .default_value(0u);
+
+  solve_cmd.add_argument("--output-graph")
+    .default_value("");
  
   try {
     program.parse_args(argc, argv);
@@ -107,10 +110,12 @@ int main(int argc, char** argv) {
     u32 dirs = solve_cmd.get<u32>("dir");
     debug(dirs);
 
+    string graph_filename = solve_cmd.get<string>("output-graph");
+    
     auto C = load_configurations();
     runtime_assert(C.count(n));
     
-    solve(C[n], width, dirs);
+    solve(C[n], width, dirs, graph_filename);
     
   }else{
     cerr << program;
