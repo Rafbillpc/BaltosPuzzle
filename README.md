@@ -41,12 +41,16 @@ the manhattan distance is an admissible heuristic (suitable for exact search usi
 but beam search benefits from a more precise heuristic, even if it is not admissible.
 
 The heuristic has a first component
-$$ H_1 = \sum_{(dx,dy)} F_1(dx,dy). $$
+```math
+H_1 = \sum_{(dx,dy)} F_1(dx,dy).
+```
 where $`(dx,dy)`$ ranges over distances between source and target positions for a given piece,
 and $`F_1`$ is a function to be determined later.
 
 The best closed expression I found for $`F_1`$ was
-$$ F_1(dx,dy) = 3 * (dx*dx+dx*dy+dy*dy) + 7 * (dx+dy). $$
+```math
+F_1(dx,dy) = 3 * (dx*dx+dx*dy+dy*dy) + 7 * (dx+dy).
+```
 
 Using just distances is problematic at the end of the solving process: we end up with lots of pieces within distance 0-2 of their target positions, but the solved pieces are distributed somewhat uniformly through the board. 
 It becomes harder to solve additional pieces without disturbing the pieces which were already solved.
@@ -65,7 +69,9 @@ The i-th bit indicates whether the neighboor in the i-th direction is solved or 
 These are quotiented by rotations and symmetry, e.g. 110100 is identified with 010110.
 
 The second component of the heuristic is
-$$ H_2 = \sum_{w} F_2(w), $$
+```math
+H_2 = \sum_{w} F_2(w),
+```
 where $`w`$ ranges over the neighborhood of unsolved pieces, and $`F_2(w)`$ is the weight assigned to 
 
 My first guess was to define $`F_2(w)`$ as the Hamming weight of $`w`$.
@@ -75,7 +81,7 @@ The total heuristic is the sum of $`H_1`$ and $`H_2`$.
 Training the heuristic
 ---
 
-I was unsure of how to best define $`F_1`$ and $`F_2`$, so I decided to determine them through machine learning.
+I was unsure of how to best define $`F_1`$ and $`F_2`$, so I decided to determine them using machine learning.
 
 The total heuristic can be described as a sum of weights assigned to features, i.e. $`H = W^T X`$ for a weight vector $`W`$ and a feature vector $`X`$.
 There are up to 209 features: 196 possible distances between source and target positions (for n=27), and 13 possible neighborhood.
@@ -97,6 +103,8 @@ Then I include $`(X_1, X_2)`$ as a training sample (with some probability, in or
 This procedure is repeated until enough training samples have been collected (between 10^6 and 10^7).
 
 For training, gradient descent is used to minimize (as a function of $`W`$) the sum of 
-$$ \mathsf{tanh}(W^T X_1 - W^T X_2) $$
+```math
+\mathsf{tanh}(W^T X_1 - W^T X_2)
+```
 over all training samples.
 
