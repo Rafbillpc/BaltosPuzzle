@@ -29,7 +29,7 @@ Trying some insertions when almost all pieces are solved could be an improvement
 
 I used my beam search implementation ([Euler tour beam search](https://gitlab.com/rafaelbocquet-cpcontests/euler-tour-beam-search)), which avoids state copying. As a result, the time needed for a single beam search iteration for a given beam width does not depend on the problem size (but the number of iterations is the size of the solution, which grows cubically with the problem size).
 
-For my last run, I used a beam width of 10 or 20 million for most problem sizes, and larger beam widths for small instances.
+For my last run, I used a beam width of 10 or 20 millions for most problem sizes, and larger beam widths for small instances.
 
 The state I use for beam search consists of a both a source and a target puzzle board.
 The puzzle is solved when the two boards coincide (including the direction of the last rotation).
