@@ -19,8 +19,8 @@ Typically solving permutation puzzles involve two kinds of approaches:
 By inserting such sequences in the middle of a partial solution, some moves can cancel out, providing a cheaper way to affect these few pieces.
 - **Beam search**, for a given heuristic estimation of the distance from a state from to the goal state.
 
-Typically, insertions work well for the Rubik's cube (when the basic moves affect many pieces, but all pieces start close to their target positions),
-and beam search works well for the (N²-1)-puzzle (when the basic moves affect very few pieces, but pieces can be far from their target positions).
+Insertions work well for puzzles similar to the Rubik's cube (when the basic moves affect many pieces, but all pieces start close to their target positions),
+and beam search works well for puzzles similar to the (N²-1)-puzzle (when the basic moves affect very few pieces, but pieces can be far from their target positions).
 But for both kinds of puzzles, I would expect the best solutions to use a combination of both.
 
 I only used beam search, but my approach struggles to solve the last few pieces, 
@@ -121,6 +121,6 @@ Once a heuristic has been learned, it can be used to restart the training proces
 
 In principle, this method could be used to learn more complicated non-linear heuristic functions.
 However, one of the reasons is works well in the linear case is that $`W^T X_1 - W^T X_2 = W^T (X_1 - X_2)`$, 
-and states at the same level of beam search are typically very similar,
+and states at the same level of beam search are usually very similar,
 so $`X_1 - X_2`$ has few non-zero components.
 Thus each training sample only affects a small number of weights.
