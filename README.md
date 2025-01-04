@@ -120,7 +120,7 @@ $`1`$ when $`X_2`$ is ranked much better than $`X_1`$.
 Once a heuristic has been learned, it can be used to restart the training process and learn an even better heuristic, until convergence.
 
 In principle, this method could be used to learn more complicated non-linear heuristic functions.
-However, one of the reasons is works well in the linear case is that $`W^T X_1 - W^T X_2 = W^T (X_1 - X_2)`$, 
+However, one of the reasons it works well in the linear case is that $`W^T X_1 - W^T X_2 = W^T (X_1 - X_2)`$, 
 and states at the same level of beam search are usually very similar,
 so $`X_1 - X_2`$ has few non-zero components.
 Thus each training sample only affects a small number of weights.
